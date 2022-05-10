@@ -1,0 +1,11 @@
+# created_by_frat
+
+path: ../yolods  # dataset root dir
+train: train
+val: train  
+test:  # test images (optional)
+
+# Classes 
+nc: 11 # number of classes
+names: ['No Class', 'Ignore', 'Img:CalibrationCard', 'Img:Seal', 'Img:WritableArea', 'Wr:OldText', 'Wr:OldNote', 'Wr:NewText', 'Wr:NewOther', 'WrO:Ornament', 'WrO:Fold'] 
+
