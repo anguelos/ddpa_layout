@@ -26,7 +26,7 @@ from PIL import ExifTags, Image, ImageOps
 from torch.utils.data import DataLoader, Dataset, dataloader, distributed
 from tqdm import tqdm
 
-from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective
+from utils.augmentations import Tormentor, Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective
 from utils.general import (DATASETS_DIR, LOGGER, NUM_THREADS, check_dataset, check_requirements, check_yaml, clean_str,
                            cv2, segments2boxes, xyn2xy, xywh2xyxy, xywhn2xyxy, xyxy2xywhn)
 from utils.torch_utils import torch_distributed_zero_first
@@ -421,6 +421,7 @@ class LoadImagesAndLabels(Dataset):
         self.stride = stride
         self.path = path
         self.albumentations = Albumentations() if augment else None
+        self.tormentor = Tormentor() if augment else None
 
         try:
             f = []  # image files
@@ -622,6 +623,9 @@ class LoadImagesAndLabels(Dataset):
         if self.augment:
             # Albumentations
             img, labels = self.albumentations(img, labels)
+            print("Before tormentor:", labels.shape, labels.dtype, "|" , img.shape, img.dtype, "\n\n\n\n")
+            img, labels = self.tormentor(img, labels)
+            print("After tormentor:", labels.shape, labels.dtype, "|" , img.shape, img.dtype, "\n\n\n\n")
             nl = len(labels)  # update after albumentations
 
             # HSV color-space

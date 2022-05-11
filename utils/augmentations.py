@@ -8,9 +8,58 @@ import random
 
 import cv2
 import numpy as np
+import torch
+
 
 from utils.general import LOGGER, check_version, colorstr, resample_segments, segment2box
 from utils.metrics import bbox_ioa
+
+
+def xywh2pc(xywh, scale_xy):
+    l = (xywh[:,0] - xywh[:,2] * .5) * scale_xy[0]
+    r = (xywh[:,0] + xywh[:,2] * .5) * scale_xy[0]
+    t = (xywh[:,1] - xywh[:,3] * .5) * scale_xy[1]
+    b = (xywh[:,1] + xywh[:,3] * .5) * scale_xy[1]
+    return torch.cat([torch.tensor(l), torch.tensor(r)], dim =0), torch.cat([torch.tensor(t), torch.tensor(b)], dim=0)
+
+
+def pc_c2cxywh(pc, c, scale_xy):
+    all_x, all_y = pc
+    all_x, all_y = all_x.numpy(), all_y.numpy()
+    l = all_x[:all_x.shape[0]//2, None] * scale_xy[0]
+    r = all_x[all_x.shape[0]//2:, None] * scale_xy[0]
+    t = all_y[:all_y.shape[0]//2, None] * scale_xy[1]
+    b = all_y[all_y.shape[0]//2:, None] * scale_xy[1]
+    center_x = (l+r)*.5
+    center_y = (t+b)*.5
+    width = r-l
+    height = b-t
+    return np.concatenate([c, center_x, center_y, width, height], axis=1)
+
+
+class Tormentor:
+    def __init__(self):
+        self.augmentation = None
+        try:
+            import tormentor as T
+            self.augmentation = T.RandomPlasmaBrightness ^ T.Identity ^ T.RandomWrap ^ T.RandomPlasmaShadow
+        except  ImportError:  # package not installed, skip
+            pass
+        except Exception as e:
+            LOGGER.info(colorstr('tormentor: ') + f'{e}')
+
+    def __call__(self, im, cxywh, p=1.0):
+        if self.augmentation and random.random() < p:
+            assert cxywh is not None and len(cxywh.shape) == 2 # and cxywh.shape[0] > 0 and cxywh.shape[1]
+            torch_img = (torch.tensor(im)/255.).transpose(2,1).transpose(1,0)
+            transform = self.augmentation()
+            pointcloud = xywh2pc(cxywh[:,1:], im.shape[:2])
+            aug_pointcloud, aug_img = transform(pointcloud, torch_img)
+            cxywh = pc_c2cxywh(aug_pointcloud, cxywh[:, :1], (1/im.shape[0], 1/im.shape[1]))
+            res_img = (aug_img*255.).byte().numpy().transpose([1,2,0]).copy()
+            return res_img, cxywh
+        else:
+            return im, cxywh
 
 
 class Albumentations:
