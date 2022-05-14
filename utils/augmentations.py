@@ -42,7 +42,8 @@ class Tormentor:
         self.augmentation = None
         try:
             import tormentor as T
-            self.augmentation = T.RandomPlasmaBrightness ^ T.Identity ^ T.RandomWrap ^ T.RandomPlasmaShadow
+            self.augmentation = T.RandomPlasmaBrightness ^ T.Identity ^ T.RandomWrap ^ T.RandomPlasmaShadow ^ T.RandomPlasmaRgbBrightness ^ T.PlasmaRgbBrightness
+            LOGGER.info(colorstr('tormentor: ') + repr(self.augmentation))
         except  ImportError:  # package not installed, skip
             pass
         except Exception as e:
