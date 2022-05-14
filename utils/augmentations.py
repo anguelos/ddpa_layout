@@ -42,6 +42,7 @@ class Tormentor:
         self.augmentation = None
         try:
             import tormentor as T
+            torch.multiprocessing.set_start_method('spawn')
             self.augmentation = T.RandomPlasmaBrightness ^ T.Identity ^ T.RandomWrap ^ T.RandomPlasmaShadow
         except  ImportError:  # package not installed, skip
             pass
@@ -49,8 +50,10 @@ class Tormentor:
             LOGGER.info(colorstr('tormentor: ') + f'{e}')
 
     def __call__(self, im, cxywh, p=1.0):
-        if self.augmentation and random.random() < p:
-            assert cxywh is not None and len(cxywh.shape) == 2 # and cxywh.shape[0] > 0 and cxywh.shape[1]
+        if self.augmentation and random.random() < p and len(cxywh) > 0:
+            if not (cxywh is not None and len(cxywh.shape) == 2):
+                print(cxywh)
+            #assert cxywh is not None and len(cxywh.shape) == 2 # and cxywh.shape[0] > 0 and cxywh.shape[1]
             torch_img = (torch.tensor(im)/255.).transpose(2,1).transpose(1,0)
             transform = self.augmentation()
             pointcloud = xywh2pc(cxywh[:,1:], im.shape[:2])
