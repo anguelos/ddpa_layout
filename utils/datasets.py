@@ -623,9 +623,7 @@ class LoadImagesAndLabels(Dataset):
         if self.augment:
             # Albumentations
             img, labels = self.albumentations(img, labels)
-            print("Before tormentor:", labels.shape, labels.dtype, "|" , img.shape, img.dtype, "\n\n\n\n")
             img, labels = self.tormentor(img, labels)
-            print("After tormentor:", labels.shape, labels.dtype, "|" , img.shape, img.dtype, "\n\n\n\n")
             nl = len(labels)  # update after albumentations
 
             # HSV color-space
