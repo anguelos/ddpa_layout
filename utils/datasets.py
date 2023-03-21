@@ -178,18 +178,23 @@ class _RepeatSampler:
 class LoadImages:
     # YOLOv5 image/video dataloader, i.e. `python detect.py --source image.jpg/vid.mp4`
     def __init__(self, path, img_size=640, stride=32, auto=True):
-        p = str(Path(path).resolve())  # os-agnostic absolute path
-        if '*' in p:
-            files = sorted(glob.glob(p, recursive=True))  # glob
-        elif os.path.isdir(p):
-            files = sorted(glob.glob(os.path.join(p, '*.*')))  # dir
-        elif os.path.isfile(p):
-            files = [p]  # files
+        if isinstance(path, list):
+            images = path
+            assert all([Path(f).is_file() for f in images])
+            videos = []
         else:
-            raise Exception(f'ERROR: {p} does not exist')
+            p = str(Path(path).resolve())  # os-agnostic absolute path
+            if '*' in p:
+                files = sorted(glob.glob(p, recursive=True))  # glob
+            elif os.path.isdir(p):
+                files = sorted(glob.glob(os.path.join(p, '*.*')))  # dir
+            elif os.path.isfile(p):
+                files = [p]  # files
+            else:
+                raise Exception(f'ERROR: {p} does not exist')
 
-        images = [x for x in files if x.split('.')[-1].lower() in IMG_FORMATS]
-        videos = [x for x in files if x.split('.')[-1].lower() in VID_FORMATS]
+            images = [x for x in files if x.split('.')[-1].lower() in IMG_FORMATS]
+            videos = [x for x in files if x.split('.')[-1].lower() in VID_FORMATS]
         ni, nv = len(images), len(videos)
 
         self.img_size = img_size
