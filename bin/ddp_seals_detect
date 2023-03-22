@@ -8,113 +8,169 @@ import torchvision
 #import yolov5.utils.general
 from pathlib import Path
 from models.common import DetectMultiBackend
-from utils.plots import colors
+from utils.plots import colors, Annotator
 import cv2
+import hashlib
+import subprocess
+import json
+import tqdm
+
+
+def get_md5(path):
+    hashlib.md5(open(path,"rb").read()).hexdigest()
+
+
+def get_git_repo_strs():
+    remote = subprocess.check_output("git config --get remote.origin.url", shell=True).strip().decode("utf-8")
+    head_str = subprocess.check_output('git rev-parse HEAD', shell=True).strip().decode("utf-8")
+    return remote, head_str
+
+def create_frat_userid(app_name, weigths_path):
+    return f"app:{app_name},git:{repr(get_git_repo_strs())},weights:{get_md5(weigths_path)}"
+
+def replace_img_basename(img_path, new_suffix=''):  # Todo (anguelos) use this from ddp_util
+    """Return the basename of an image path
+
+    Args:
+        img_path (str): path to an image file
+        new_suffix (str, optional): With what to substitute the detect file exteion. 
+        Defaults to '' which return the basename.
+
+    Returns:
+        Path : the new filename
+    """
+    p = Path(img_path)
+    return p.with_name(p.name.split('.')[0]).with_suffix(new_suffix)
+
 
 p = {
-    "imgsz": 1000,
+    "appname": "seals",
+    "pred_filext":".{appname}.pred.json",
+    "imgsz": 1024,
     "img_paths": set(["../../1000_CVCharters/AT-DAW/d3a416ef7813f88859c305fb83b20b5b/41a23d5bfd6d87c6f1d19f27fdc6e501/e24d5c21fd4a851da7817c75eed15b47.img.jpg"]),
     "weights": "./1Kimg.pt",
     "classes": '["No Class", "Ignore", "Img:CalibrationCard", "Img:Seal", "Img:WritableArea", "Wr:OldText", "Wr:OldNote", "Wr:NewText", "Wr:NewOther", "WrO:Ornament", "WrO:Fold"]',
+    "class_colors": '["#646B63","#23282B","#763C28","#316650","#00BB2D","#287233","#231A24","#F5D033","#063971","#1E2460","#641C34"]',
     "device": "cpu",
     "conf_thres": 0.25,
     "iou_thres": 0.45,
-    "max_det": 1000
+    "max_det": 1000,
+    "preview_delay": 1000,
+    "preview": 1,
+    "save_crops":0,
+    "overwrite_existing":0,
 }
 
-args, _ = fargv.fargv(p)
+
+if __name__ == "__main__":
+        
+
+    args, _ = fargv.fargv(p)
 
 
+    model = DetectMultiBackend(weights=args.weights, device=torch.device(args.device))
+    model=model.float()
 
-def img2predfname(img_path, pred_postfix):
-    pass
+    assert len(model.names) == len(eval(args.classes))
 
+    model.names = eval(args.classes)
 
+    imgsz = utils.general.check_img_size(args.imgsz)  # check image size
 
-from models.experimental import attempt_load
-#model=yolov5.models.experimental.attempt_load(weights=args.weights)
-model=attempt_load(weights=args.weights, map_location=torch.device('cpu'))
-model = DetectMultiBackend(weights=args.weights, device=torch.device(args.device))
+    from utils.datasets import LoadImages
 
+    dl=LoadImages(list(args.img_paths), imgsz, 32)
 
-assert len(model.names) == len(eval(args.classes))
-model.names = eval(args.classes)
-model=model.float()
+    dt, seen = [0.0, 0.0, 0.0], 0
 
-imgsz = utils.general.check_img_size(args.imgsz)  # check image size
-from utils.datasets import LoadImages
-
-#dl=utils.datasets.LoadImages(args.img_path, imgsz, 32)
-print(args.img_paths)
-dl=LoadImages(list(args.img_paths), imgsz, 32)
-#model = yolov5.models.common.DetectMultiBackend(weights, device=device, dnn=False, data=None, fp16=half)
-
-dt, seen = [0.0, 0.0, 0.0], 0
-
-for path, im, im0s, vid_cap, s in dl:
-    print(path)
-    im = torch.from_numpy(im).to(args.device)
-    #im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
-    im = im.float()
-    im /= 255  # 0 - 255 to 0.0 - 1.0
-    if len(im.shape) == 3:
-        im = im[None]  # expand for batch dim
-    pred = model(im)
-    from utils.general import non_max_suppression #non_max_supression
-    #pred = yolov5.utils.general.non_max_suppression(pred, conf_thres=args.conf_thres, iou_thres=args.iou_thres, classes=None, max_det=args.max_det)
-
-    pred = non_max_suppression(pred, conf_thres=args.conf_thres, iou_thres=args.iou_thres, classes=None, max_det=args.max_det)
-    #imgsz = yolov5.utils.general.scale_coords()
-    im0=im0s.copy()
     names = eval(args.classes)
+    class_colors = eval(args.class_colors)
 
-    for i, det in enumerate(pred):  # per image
-        seen += 1
-        p, im0, frame = path, im0s.copy(), getattr(dl, 'frame', 0)
+    if args.preview:
+        cv2.namedWindow("Seals")
+        cv2.resizeWindow("Seals",1700,800)
 
-        p = Path(p)  # to Path
-        save_dir = Path("/tmp")
-        save_path = str(save_dir / p.name)  # im.jpg
-        txt_path = str(save_dir / 'labels' / p.stem) + ('' if dl.mode == 'image' else f'_{frame}')  # im.txt
-        s += '%gx%g ' % im.shape[2:]  # print string
-        gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-        #imc = im0.copy() if save_crop else im0  # for save_crop
-        from utils.plots import Annotator
-        annotator = Annotator(im0, line_width=4, example=str(names))
 
-        if len(det):
-            # Rescale boxes from img_size to im0 size
-            from utils.general import scale_coords
-            det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
+    frat_user_str = create_frat_userid(args.appname, args.weights)
+    progress = tqdm.tqdm(dl)
+    for path, im, im0s, vid_cap, s in progress:
+        progress.set_description(f"{Path(path).name}")
+        progress.refresh()
+        im = torch.from_numpy(im).to(args.device)
+        #print("im.size():",im.size(),"  im0s.size()",im0s.shape)
+        #im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
+        im = im.float()
+        im /= 255  # 0 - 255 to 0.0 - 1.0
+        if len(im.shape) == 3:
+            im = im[None]  # expand for batch dim
+        pred = model(im)
+        from utils.general import non_max_suppression #non_max_supression
+        #pred = yolov5.utils.general.non_max_suppression(pred, conf_thres=args.conf_thres, iou_thres=args.iou_thres, classes=None, max_det=args.max_det)
 
-            # Print results
-            for c in det[:, -1].unique():
-                n = (det[:, -1] == c).sum()  # detections per class
-                s = 's'
-                s += f"{n} {names[int(c)]}{s * (n > 1)}"
-            save_txt=False
-            save_img=True
-            hide_labels=False
-            hide_conf=False
-            save_crop=False
-            view_img=True
-            for *xyxy, conf, cls in reversed(det):
-                print(f"Det: {xyxy}\tConf:{conf}\tCls:{cls}")
-                if save_txt:  # Write to file
-                    xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                    line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
-                    with open(txt_path + '.txt', 'a') as f:
-                        f.write(('%g ' * len(line)).rstrip() % line + '\n')
+        pred = non_max_suppression(pred, conf_thres=args.conf_thres, iou_thres=args.iou_thres, classes=None, max_det=args.max_det)
+        #imgsz = yolov5.utils.general.scale_coords()
+        #im0=im0s.copy()
+        frat_dict = {"img_md5":get_md5(path), "user":frat_user_str, 
+                    "class_names":names,"class_colors":class_colors, 
+                    "image_wh":[im0s.shape[1],im0s.shape[0]],
+                    "rect_LTRB":[],"rect_captions":[],"rect_classes":[]}
 
-                if save_img or save_crop or view_img:  # Add bbox to image
-                    c = int(cls)  # integer class
-                    label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-                    annotator.box_label(xyxy, label, color=colors(c, True))
-                    if save_crop:
-                        save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
+        for i, det in enumerate(pred):  # per image
+            seen += 1
+            p, im0, frame = path, im0s.copy(), getattr(dl, 'frame', 0)
 
-        # Stream results
-        im0 = annotator.result()
-        if view_img:
-            cv2.imshow(str(p),cv2.resize(im0, (960, 540)) )
-            cv2.waitKey(0)  # 1 millisecond
+            p = Path(p)  # to Path
+            save_dir = Path("/tmp")
+            save_path = str(save_dir / p.name)  # im.jpg
+            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dl.mode == 'image' else f'_{frame}')  # im.txt
+            s += '%gx%g ' % im.shape[2:]  # print string
+            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+            #imc = im0.copy() if save_crop else im0  # for save_crop
+
+            annotator = Annotator(im0, line_width=4, example=str(names))
+
+            if len(det):
+                # Rescale boxes from img_size to im0 size
+                from utils.general import scale_coords
+                det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
+
+                # Print results
+                for c in det[:, -1].unique():
+                    n = (det[:, -1] == c).sum()  # detections per class
+                    s = 's'
+                    s += f"{n} {names[int(c)]}{s * (n > 1)}"
+                save_txt=False
+                save_img=True
+                hide_labels=False
+                hide_conf=False
+                for *xyxy, conf, cls in reversed(det):
+                    frat_dict["rect_LTRB"].append(torch.tensor(xyxy).to("cpu").numpy().tolist())
+                    frat_dict["rect_captions"].append(f"@conf:{conf}")
+                    frat_dict["rect_classes"].append(int(cls))
+                    #print(f"Det: {xyxy}\tConf:{conf}\tCls:{cls}")
+                    #if save_txt:  # Write to file
+                    #    xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                    #    line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
+                    #    with open(txt_path + '.txt', 'a') as f:
+                    #        f.write(('%g ' * len(line)).rstrip() % line + '\n')
+
+                    if save_img or args.save_crops or args.preview:  # Add bbox to image
+                        c = int(cls)  # integer class
+                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        annotator.box_label(xyxy, label, color=colors(c, True))
+                        if args.save_crops:
+                            save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
+            # Stream results
+            im0 = annotator.result()
+            if args.preview:
+                cv2.imshow("Seals",cv2.resize(im0,(1600,850)))
+                cv2.resizeWindow("Seals",1700,900)
+                cv2.moveWindow("Seals", 50,50)
+                cv2.waitKey(args.preview_delay)
+        if args.preview:
+            cv2.destroyAllWindows()
+        
+        fratpath = replace_img_basename(path, args.pred_filext)
+        if not(fratpath.is_file()) or args.overwrite_existing:
+            #print(frat_dict)
+            open(fratpath,"w").write(json.dumps(frat_dict, indent=2))
