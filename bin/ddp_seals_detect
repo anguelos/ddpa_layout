@@ -8,12 +8,14 @@ import torchvision
 #import yolov5.utils.general
 from pathlib import Path
 from models.common import DetectMultiBackend
-from utils.plots import colors, Annotator
+from utils.plots import colors, Annotator, save_one_box
+from utils.general import non_max_suppression
 import cv2
 import hashlib
 import subprocess
 import json
 import tqdm
+import re
 
 
 def get_md5(path):
@@ -47,10 +49,12 @@ p = {
     "appname": "seals",
     "pred_filext":".{appname}.pred.json",
     "imgsz": 1024,
+    "frat_comment_begin_marker": "$",
     "img_paths": set(["../../1000_CVCharters/AT-DAW/d3a416ef7813f88859c305fb83b20b5b/41a23d5bfd6d87c6f1d19f27fdc6e501/e24d5c21fd4a851da7817c75eed15b47.img.jpg"]),
     "weights": "./1Kimg.pt",
     "classes": '["No Class", "Ignore", "Img:CalibrationCard", "Img:Seal", "Img:WritableArea", "Wr:OldText", "Wr:OldNote", "Wr:NewText", "Wr:NewOther", "WrO:Ornament", "WrO:Fold"]',
     "class_colors": '["#646B63","#23282B","#763C28","#316650","#00BB2D","#287233","#231A24","#F5D033","#063971","#1E2460","#641C34"]',
+    "crop_classes": '["Img:CalibrationCard", "Img:Seal", "Img:WritableArea"]',
     "device": "cpu",
     "conf_thres": 0.25,
     "iou_thres": 0.45,
@@ -104,7 +108,6 @@ if __name__ == "__main__":
         if len(im.shape) == 3:
             im = im[None]  # expand for batch dim
         pred = model(im)
-        from utils.general import non_max_suppression #non_max_supression
         #pred = yolov5.utils.general.non_max_suppression(pred, conf_thres=args.conf_thres, iou_thres=args.iou_thres, classes=None, max_det=args.max_det)
 
         pred = non_max_suppression(pred, conf_thres=args.conf_thres, iou_thres=args.iou_thres, classes=None, max_det=args.max_det)
@@ -143,9 +146,9 @@ if __name__ == "__main__":
                 save_img=True
                 hide_labels=False
                 hide_conf=False
-                for *xyxy, conf, cls in reversed(det):
+                for n, (*xyxy, conf, cls) in enumerate(reversed(det)):
                     frat_dict["rect_LTRB"].append(torch.tensor(xyxy).to("cpu").numpy().tolist())
-                    frat_dict["rect_captions"].append(f"@conf:{conf}")
+                    frat_dict["rect_captions"].append(f"{args.frat_comment_begin_marker}conf:{conf}")
                     frat_dict["rect_classes"].append(int(cls))
                     #print(f"Det: {xyxy}\tConf:{conf}\tCls:{cls}")
                     #if save_txt:  # Write to file
@@ -153,13 +156,17 @@ if __name__ == "__main__":
                     #    line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
                     #    with open(txt_path + '.txt', 'a') as f:
                     #        f.write(('%g ' * len(line)).rstrip() % line + '\n')
-
                     if save_img or args.save_crops or args.preview:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
-                        if args.save_crops:
-                            save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
+                        if args.save_crops and names[int(cls)] in eval(args.crop_classes):
+                            class_clean_name = re.sub(r'[^a-zA-Z0-9]', '_', names[int(cls)])
+                            class_dir_path = replace_img_basename(path,f".{args.appname}.crops")
+                            #print("CLass Dir Path",repr(class_dir_path),"\n\n")
+                            #class_dir_path.mkdir(parents=True, exist_ok=True)
+                            crop_path = Path(f"{class_dir_path}/{n}.{class_clean_name}.jpg")
+                            save_one_box(xyxy, im0s.copy(), file=crop_path, BGR=True)
             # Stream results
             im0 = annotator.result()
             if args.preview:
