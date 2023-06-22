@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>List of objects with thumbnails</title>
+  </head>
+  <body>
+    <h2>{{data|length}}Objects found</h2>
+    <table border="1">
+      <tr><th>#</th><th>Charter md5</th><th>Image md5</th><th>Class</th><th>Object number(in image)</th><th>Crop</th></tr>
+      {% for imagerects in data %}
+      <tr>
+        <td>{{loop.index}}</td> 
+        <td><a href="{{fsdb_url}}/charter/{{imagerects.4}}">{{imagerects.4}}</a></td>
+        <td><a href="{{fsdb_url}}/image/{{imagerects.0}}">{{imagerects.0}}</a></td>
+        <td>{{imagerects.3}}</td>
+        <td><a href="/crops/{{imagerects.0}}/{{imagerects.1}}">{{imagerects.1}}</a> </td>
+        <td><a href="/crops/{{imagerects.0}}/{{imagerects.1}}"><img src="/crops/{{imagerects.0}}/{{imagerects.1}}" width="100"/></a> </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </body>
+</html>

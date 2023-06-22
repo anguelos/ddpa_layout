@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+import fargv
+import flask
+import glob
+import json
+from collections import defaultdict, Counter, OrderedDict
+import re
+import time
+from flask import Flask, jsonify, render_template, send_file, request
+import os
+from PIL import Image
+from io import BytesIO
+
+
+p = {
+    "root":"./misc/1000_CVCharters/",
+    "filename": "*.seals.pred.json",
+    "templates": "/home/anguelos/work/src/didipcv/apps/ddpa_seals/templates",
+    "port": 5003,
+    "fsdb_url": "http://localhost:5000/",
+    "debug": True,
+    "object_list_thumbnail":"",
+    "default_format": (["json", "html"])
+}
+
+
+args, _ = fargv.fargv(p)
+
+
+def load_seals(root, filename):
+    charters2images2imagerects = defaultdict(lambda:defaultdict(lambda:[])) # to store the json data
+    json_paths = list(glob.glob(f"{root}/*/*/*/{filename}"))
+    class_names = json.load(open(json_paths[0], "r"))["class_names"]
+    classes2imagerects = {name:[] for name in class_names}
+    images2imagerects = defaultdict(lambda:[])
+    charters2imagerects = defaultdict(lambda:[])
+    imgmd52imgpath = {}
+    for n, gt_fname in enumerate(json_paths):
+        gtfname_pieces = gt_fname.split("/")
+        image_md5 = gtfname_pieces[-1].split(".")[0]
+        charter_md5 = gtfname_pieces[-2]
+        #TODO change this for IIIF on the image if efficient
+        imgpath = glob.glob("/".join(gtfname_pieces[:-1]+[gtfname_pieces[-1].split(".")[0]+".img.*"]))[0]
+        imgmd52imgpath[image_md5] = imgpath
+        object_data = json.load(open(gt_fname, "r"))
+        object_data["image_md5"] = image_md5
+        object_data["charter_md5"] = charter_md5
+        rect_LTRB, rect_classes, class_names = object_data["rect_LTRB"], object_data["rect_classes"], object_data["class_names"]
+        for n in range(len(object_data["rect_LTRB"])):
+            imagerect = (image_md5,n, rect_LTRB[n], class_names[rect_classes[n]], charter_md5)
+            classes2imagerects[class_names[rect_classes[n]]].append(imagerect)
+            images2imagerects[image_md5].append(imagerect)
+            charters2imagerects[charter_md5].append(imagerect)
+            charters2images2imagerects[charter_md5][image_md5].append(imagerect)
+    return class_names, charters2images2imagerects, classes2imagerects, images2imagerects, charters2imagerects, imgmd52imgpath
+
+
+    
+
+
+#app = Flask(__name__, template_folder=args.templates)
+app = Flask(__name__, template_folder="/home/anguelos/work/src/didipcv/apps/ddpa_seals/templates")
+app.config['EXPLAIN_TEMPLATE_LOADING'] = True
+
+
+
+@app.route('/classes')
+def serve_classes():
+    file_format = request.args.get('format')
+    if file_format is None:
+        file_format = args.default_format
+    if file_format == "json":
+        return jsonify(class_names)
+    if file_format == "html":
+        class_cardinalities = [(cn, len(classes2imagerects[cn])) for cn in class_names]
+        return render_template('classes.html', data=class_cardinalities)  # Return HTML response
+    return "Unsupported format", 406
+
+
+#TODO this might be better served by IIIF on the full images
+@app.route('/crops/<imgmd5>/<LTRB_str>')
+def serve_crops(imgmd5, LTRB_str):
+    file_format = request.args.get('format')
+    LTRB = tuple([int(d) for d in LTRB_str.split(",")])
+    if len(LTRB) == 1: # we consider it means the Nth object of the image
+        LTRB = images2imagerects[imgmd5][LTRB[0]][2]
+    pil_image = Image.open(imgmd52imgpath[imgmd5])
+    pil_image = pil_image.crop(LTRB)
+    image_stream = BytesIO()
+    if file_format is None:
+        file_format = "JPEG"
+    if file_format.lower() == "jpeg":
+        pil_image.save(image_stream, format="JPEG")
+        image_stream.seek(0)
+        return send_file(image_stream, mimetype='image/jpeg')
+    elif file_format.lower() == "bmp":
+        pil_image.save(image_stream, format="BMP")
+        image_stream.seek(0)
+        return send_file(image_stream, mimetype='image/bmp')
+    elif file_format.lower() == "webp":
+        pil_image.save(image_stream, format="WebP")
+        image_stream.seek(0)
+        return send_file(image_stream, mimetype='image/webp')
+    
+
+
+
+@app.route('/objects/<imgmd5>/<int:object_num>')
+def serve_objects(imgmd5, object_num):
+    file_format = request.args.get('format')
+    if file_format is None:
+        file_format = args.default_format
+    if file_format == "json":
+        return jsonify(images2imagerects[imgmd5][object_num])
+    elif file_format == "html":
+        imgmd5, objectnumber, LTRB, classname, chartermd5 = images2imagerects[imgmd5][object_num]
+        return render_template('object.html',imgmd5=imgmd5, objectnumber=objectnumber,
+                               LTRB=[int(n) for n in LTRB], classname=classname, chartermd5=chartermd5, fsdb_url=args.fsdb_url)  # Return HTML response
+    return "Unsupported format", 406
+
+
+@app.route('/classitems/<classname>')
+def serve_classitems(classname):
+    file_format = request.args.get('format')
+    if file_format is None:
+        file_format = args.default_format
+    if file_format == "json":
+        return jsonify(classes2imagerects[classname])
+    elif file_format == "html":
+        if args.object_list_thumbnail:
+            print("THUMB")
+            return render_template('object_list_thumbnailed.html', data=classes2imagerects[classname], fsdb_url=args.fsdb_url)  # Return HTML response
+        else:
+            print(args)
+            print("NOTHUMB")
+            return render_template('object_list.html', data=classes2imagerects[classname], fsdb_url=args.fsdb_url)  # Return HTML response
+    return "Unsupported format", 406
+
+
+if __name__ == "__main__":
+    start_time = time.time()
+    class_names, charters2images2imagerects, classes2imagerects, images2imagerects, charters2imagerects, imgmd52imgpath = load_seals(args.root, args.filename)
+    load_time = time.time() - start_time
+    print(load_time)
+    loaded_templates = [template for template in app.jinja_loader.list_templates()]
+    print(f"http://127.0.0.1:{args.port}/classes?format=html")
+    imagerect = classes2imagerects["Img:Seal"][0]
+    print(f"http://127.0.0.1:{args.port}/crops/{imagerect[0]}/{int(imagerect[2][0])},{int(imagerect[2][1])},{int(imagerect[2][2])},{int(imagerect[2][3])}?format=jpeg")
+    print(f"http://127.0.0.1:{args.port}/objects/{imagerect[0]}/{imagerect[1]}?format=html")
+
+    app.run(debug=args.debug, port=args.port)
+    

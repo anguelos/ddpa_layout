@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Object Classes</title>
+  </head>
+  <body>
+    <h2>{{data|length}}Words Starting with <i><b>"{{filter}}"</b></i></h2>
+    <table>
+      <tr><th>#</th><th>Class Name</th><th>Total Occurences</th><th>Distict </th><th>Tenor Occurences</th></tr>
+      {% for class_occ in data %}
+      <tr>
+        <td>{{loop.index}}</td> 
+        <td>{{class_occ.0}}</td>
+        <td><a href="/classitems/{{class_occ.0}}?format=html">{{class_occ.1}}</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+  </body>
+</html>
