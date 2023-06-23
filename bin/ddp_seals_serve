@@ -20,7 +20,8 @@ p = {
     "fsdb_url": "http://localhost:5000/",
     "debug": True,
     "object_list_thumbnail":"",
-    "default_format": (["json", "html"])
+    "default_format": (["json", "html"]),
+    "page_itemcount": 25,
 }
 
 
@@ -106,30 +107,46 @@ def serve_crops(imgmd5, LTRB_str):
 
 
 @app.route('/objects/<imgmd5>/<int:object_num>')
-def serve_objects(imgmd5, object_num):
+def serve_object(imgmd5, object_num):
     file_format = request.args.get('format')
     if file_format is None:
         file_format = args.default_format
     if file_format == "json":
         return jsonify(images2imagerects[imgmd5][object_num])
     elif file_format == "html":
-        imgmd5, objectnumber, LTRB, classname, chartermd5 = images2imagerects[imgmd5][object_num]
+        imgmd5, objectnumber, LTRB, classname, chartermd5 = images2imagerects[imgmd5][object_num][skip:skip+itemcount]
         return render_template('object.html',imgmd5=imgmd5, objectnumber=objectnumber,
                                LTRB=[int(n) for n in LTRB], classname=classname, chartermd5=chartermd5, fsdb_url=args.fsdb_url)  # Return HTML response
     return "Unsupported format", 406
 
 
+def create_pagers(result_length, skip, item_count):
+    last_item = result_length - 1 
+    prev = max(skip-item_count,0), max(min(item_count, last_item),1)
+    current = min(max(skip,0),last_item), max(min(item_count, result_length-skip),1)
+    following = min(skip+item_count,last_item),max(min(item_count, last_item-(skip+item_count)),1)
+    return prev, current, following
+
+
 @app.route('/classitems/<classname>')
-def serve_classitems(classname):
+@app.route('/classitems/<classname>/<int:skip>/<int:itemcount>')
+def serve_classitems(classname, skip=0, itemcount=args.page_itemcount):
     file_format = request.args.get('format')
     if file_format is None:
         file_format = args.default_format
     if file_format == "json":
         return jsonify(classes2imagerects[classname])
     elif file_format == "html":
-        if args.object_list_thumbnail:
+        data = classes2imagerects[classname]
+        totalitems = len(data)
+        prev, current, following  = create_pagers(totalitems, skip, itemcount)
+        data = data[current[0]:current[0]+current[1]]
+        print(f"data is now: {len(data)} {prev} {current} {following}")
+        #if args.object_list_thumbnail:
+        if True:
             print("THUMB")
-            return render_template('object_list_thumbnailed.html', data=classes2imagerects[classname], fsdb_url=args.fsdb_url)  # Return HTML response
+            return render_template('object_list_thumbnailed.html', data=data, fsdb_url=args.fsdb_url, 
+                                   classname=classname, prev=prev, current=current,following=following,totalitems=totalitems)  # Return HTML response
         else:
             print(args)
             print("NOTHUMB")

@@ -4,7 +4,15 @@
     <title>List of objects with thumbnails</title>
   </head>
   <body>
-    <h2>{{data|length}}Objects found</h2>
+    <h2>{{totalitems}} objects of class {{classname}} found, showing {{data|length}}</h2>
+    <div><table border="1"><tr>
+      <td><a href="/classitems/{{classname}}/0/{{prev.1}}?format=html">0-{{prev.1}}</td>
+      <td><a href="/classitems/{{classname}}/{{prev.0}}/{{prev.1}}?format=html">{{prev.0}}-{{prev.1}}</td>
+      <td><a href="/classitems/{{classname}}/{{current.0}}/{{current.1}}?format=html">{{current.0}}-{{current.1}}</td>
+      <td><a href="/classitems/{{classname}}/{{following.0}}/{{following.1}}?format=html">{{following.0}}-{{following.1}}</td>
+      <td><a href="/classitems/{{classname}}/{{totalitems-current.1}}/{{following.1}}?format=html">{{totalitems-following.1}}-{{following.1}}</td>
+    </tr>
+    </table></div>>
     <table border="1">
       <tr><th>#</th><th>Charter md5</th><th>Image md5</th><th>Class</th><th>Object number(in image)</th><th>Crop</th></tr>
       {% for imagerects in data %}
@@ -17,6 +25,5 @@
         <td><a href="/crops/{{imagerects.0}}/{{imagerects.1}}"><img src="/crops/{{imagerects.0}}/{{imagerects.1}}" width="100"/></a> </td>
       </tr>
       {% endfor %}
-    </table>
   </body>
 </html>
