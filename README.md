@@ -12,8 +12,7 @@ sed -i 's/..\/seal_ds\//.\/data\/diplomatics\//g' ./data/diplomatics/seal_ds.yam
 
 ** Train Yolo
 ```bash
-#./bin/ddp_seals_train --data ./data/diplomatics/seal_ds.yaml  --workers 0
-./bin/ddp_seals_train --data ./data/diplomatics/seal_ds.yaml --weights ''  --workers 0 --cfg ./models/yolo_didip.yaml
+./bin/ddp_seals_train --data ./data/diplomatics/seal_ds.yaml --weights ''  --workers 0 --cfg ./models/yolo_didip.yaml --save-period 1
 ```
 
 ** View Training Results

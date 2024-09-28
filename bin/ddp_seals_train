@@ -357,7 +357,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             # Forward
-            with amp.autocast(enabled=cuda):
+            #with amp.autocast(enabled=cuda):
+            with torch.amp.autocast('cuda'):
                 pred = model(imgs)  # forward
                 #print("pred", type(pred))
                 #print("targets", type(targets))
