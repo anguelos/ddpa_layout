@@ -54,6 +54,24 @@ def replace_img_basename(img_path, new_suffix=''):
     return p.with_name(p.name.split('.')[0]).with_suffix(new_suffix)
 
 
+def filter_fnames_for_resume(fnames, pred_filext):
+    """Filter the fnames for the appname
+
+    Args:
+        fnames (list): list of filenames
+        appname (str): the appname to filter
+
+    Returns:
+        list: the filtered filenames
+    """
+    for fname in fnames:
+        if replace_img_basename(fname, pred_filext).is_file():
+            continue
+        else:
+        
+            yield fname
+
+
 p = {
     "appname": "seals",
     "pred_filext": ".{appname}.pred.json",
@@ -63,7 +81,7 @@ p = {
     "weights": "./1Kimg.pt",
     "classes": '["No Class", "Ignore", "Img:CalibrationCard", "Img:Seal", "Img:WritableArea", "Wr:OldText", "Wr:OldNote", "Wr:NewText", "Wr:NewOther", "WrO:Ornament", "WrO:Fold"]',
     "class_colors": '["#646B63","#23282B","#763C28","#316650","#00BB2D","#287233","#231A24","#F5D033","#063971","#1E2460","#641C34"]',
-    "crop_classes": '["Img:CalibrationCard", "Img:Seal", "Img:WritableArea", "Wr:OldText"]',
+    "crop_classes": '["Wr:OldText"]',
     "device": "cpu",
     "conf_thres": 0.25,
     "iou_thres": 0.45,
@@ -83,6 +101,7 @@ if __name__ == "__main__":
         weights=args.weights, device=torch.device(args.device))
     model = model.float()
 
+    print(f"Model: {model.names}, Classes: {args.classes}")
     assert len(model.names) == len(eval(args.classes))
 
     model.names = eval(args.classes)
@@ -91,7 +110,7 @@ if __name__ == "__main__":
 
     from utils.datasets import LoadImages
 
-    dl = LoadImages(list(args.img_paths), imgsz, 32)
+    dl = LoadImages(filter_fnames_for_resume(args.img_paths, args.pred_filext), imgsz, 32)
 
     dt, seen = [0.0, 0.0, 0.0], 0
 
