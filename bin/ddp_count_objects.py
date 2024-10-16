@@ -5,6 +5,7 @@ import fargv
 import json
 from pathlib import Path
 from collections import defaultdict
+import tqdm
 
 
 def count_charter_objects(charter_path, filext=".seals.pred.json", min_width=501, min_height=501):
@@ -45,7 +46,7 @@ def count_statistics(charter_list):
     accumulate_best = defaultdict(lambda :0)
     accumulate_seal_count = []
     accumulate_best_seal = []
-    for charter_path in charter_list:
+    for charter_path in tqdm.tqdm(charter_list):
         all_image_res, single_image_res, seal_counts = count_charter_objects(charter_path=charter_path)
         for k, v in all_image_res.items():
             accumulate_all[k]+= v
