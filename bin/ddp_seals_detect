@@ -110,7 +110,8 @@ if __name__ == "__main__":
 
     from utils.datasets import LoadImages
 
-    dl = LoadImages(filter_fnames_for_resume(args.img_paths, args.pred_filext), imgsz, 32)
+    #dl = LoadImages(filter_fnames_for_resume(args.img_paths, args.pred_filext), imgsz, 32)
+    dl = LoadImages(args.img_paths, imgsz, 32)
 
     dt, seen = [0.0, 0.0, 0.0], 0
 
