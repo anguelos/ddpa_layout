@@ -20,7 +20,7 @@ import glob
 
 
 def get_md5(path):
-    hashlib.md5(open(path, "rb").read()).hexdigest()
+    return hashlib.md5(open(path, "rb").read()).hexdigest()
 
 
 def get_git_repo_strs():
