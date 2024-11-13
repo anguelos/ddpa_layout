@@ -16,6 +16,7 @@ import subprocess
 import json
 import tqdm
 import re
+import glob
 
 
 def get_md5(path):
@@ -77,8 +78,10 @@ p = {
     "pred_filext": ".{appname}.pred.json",
     "imgsz": 1024,
     "frat_comment_begin_marker": "$",
-    "img_paths": set(["../../1000_CVCharters/AT-DAW/d3a416ef7813f88859c305fb83b20b5b/41a23d5bfd6d87c6f1d19f27fdc6e501/e24d5c21fd4a851da7817c75eed15b47.img.jpg"]),
-    "weights": "./1Kimg.pt",
+    #"img_paths": set(["../../1000_CVCharters/AT-DAW/d3a416ef7813f88859c305fb83b20b5b/41a23d5bfd6d87c6f1d19f27fdc6e501/e24d5c21fd4a851da7817c75eed15b47.img.jpg"]),
+    "img_paths": set([]),
+    "charter_dirs": set(["./"]), # set(["../../1000_CVCharters/AT-DAW/d3a416ef7813f88859c305fb83b20b5b/41a23d5bfd6d87c6f1d19f27fdc6e501/"])  should also be fine
+    "weights": "/mnt/data/home/anguelos/work/src/didipcv/misc/resolution_regressor/data/1Kimg.pt",
     "classes": '["No Class", "Ignore", "Img:CalibrationCard", "Img:Seal", "Img:WritableArea", "Wr:OldText", "Wr:OldNote", "Wr:NewText", "Wr:NewOther", "WrO:Ornament", "WrO:Fold"]',
     "class_colors": '["#646B63","#23282B","#763C28","#316650","#00BB2D","#287233","#231A24","#F5D033","#063971","#1E2460","#641C34"]',
     "crop_classes": '["Wr:OldText"]',
@@ -96,7 +99,21 @@ p = {
 if __name__ == "__main__":
 
     args, _ = fargv.fargv(p)
+    print("Before:",args.img_paths)
+    all_img_paths = list(sorted(args.img_paths))
+    for charter_dir in args.charter_dirs:
+        print(f"Charter Dir: {charter_dir}", end=" ")
+        if Path(charter_dir).is_dir() and Path(f"{charter_dir}/CH.cei.xml").exists():
+            #all_img_paths += [str(f) for f in list(Path(charter_dir).glob("*.img.*"))]
+            img_glob = f"{charter_dir}/*.img.*"
+            charter_images = [str(f) for f in glob.glob(img_glob)]
+            print(f"{img_glob} Added {len(charter_images)} images")
+            all_img_paths += charter_images
+            
+    args.img_paths = list(all_img_paths)
+    print("AFTER:",args.img_paths)
 
+    
     model = DetectMultiBackend(
         weights=args.weights, device=torch.device(args.device))
     model = model.float()
