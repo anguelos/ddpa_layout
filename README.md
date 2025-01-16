@@ -20,3 +20,20 @@ sed -i 's/..\/seal_ds\//.\/data\/diplomatics\//g' ./data/diplomatics/seal_ds.yam
 ls ./runs/train/$(ls -Art ./runs/tr* | tail -n 1)
 ```
 
+```bash
+PYTHONPATH="./" ./bin/ddp_seals_detect -weights ./runs/train/mytrain/weights/best.pt -img_paths /mnt/bkup/tmp/data/fsdb/*/*/*/*.img.*
+```
+
+** Run on the full database
+```bash
+export PYTHONPATH="$HOME/work/src/ddpa_layout"
+export DBROOT="./"
+echo "${DBROOT}"*/*/*/*.img.* | xargs -n 6000 ~/work/src/yolov5/bin/ddp_seals_detect -weights ~/work/src/ddpa_loyout/runs/train/mytrain/weights/best.pt -img_paths 
+```
+
+** Serve on FSDB
+```bash
+export PYTHONPATH="$HOME/work/src/ddpa_layout"
+export DBROOT="../ddp_texture/data/lost_seals/"
+./bin/ddp_layout_serve -root $DBROOT -debug 1
+```

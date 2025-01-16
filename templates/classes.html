@@ -2,11 +2,34 @@
 <html>
   <head>
     <title>Object Classes</title>
+    <style>
+      body {
+            background-color: #d1eba3;
+            font-family: 'Garamond', serif;
+            color: #3e2723;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        padding: 10px;
+        border: 1px solid #ddd;
+        text-align: left;
+      }
+      th {
+        background-color: #4CAF50;
+        color: white;
+      }
+      tr:nth-child(even) {
+        background-color: #f2f2f2;
+      }
+    </style>
   </head>
   <body>
-    <h2>{{data|length}}Words Starting with <i><b>"{{filter}}"</b></i></h2>
+    <h2>{{data|length}} Words Starting with <i><b>"{{filter}}"</b></i></h2>
     <table>
-      <tr><th>#</th><th>Class Name</th><th>Total Occurences</th><th>Distict </th><th>Tenor Occurences</th></tr>
+      <tr><th>#</th><th>Class Name</th><th>Total Occurrences</th><th>Distinct</th><th>Tenor Occurrences</th></tr>
       {% for class_occ in data %}
       <tr>
         <td>{{loop.index}}</td> 

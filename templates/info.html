@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Render Info</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f9f5e9;
+            font-family: 'Garamond', serif;
+            color: #3e2723;
+        }
+        table {
+            background-color: #fffbe6;
+            border-color: #d7ccc8;
+        }
+        td, th {
+            color: #3e2723;
+        }
+        .btn-primary {
+            background-color: #8d6e63;
+            border-color: #5d4037;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">System Information</h1>
+        <table class="table table-bordered">
+            <tr>
+                <td><a href="/">Archives</a></td>
+                <td>{{archive_count}}</td>
+            </tr>
+            <tr>
+                <td><a href="/">Fonds</a></td>
+                <td>{{fond_count}}</td>
+            </tr>
+            <tr>
+                <td><a href="/">Charters</a></td>
+                <td>{{charter_count}}</td>
+            </tr>
+            <tr>
+                <td><a href="/">Images</a></td>
+                <td>{{image_count}}</td>
+            </tr>
+            <tr>
+                <td>Loading Time</td>
+                <td>{{load_time}} sec.</td>
+            </tr>
+            <tr>
+                <td>Uptime</td>
+                <td>{{uptime}} sec.</td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

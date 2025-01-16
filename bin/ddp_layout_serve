@@ -1,0 +1,480 @@
+#!/usr/bin/env python3
+import threading
+import fargv
+import glob
+import json
+from collections import defaultdict, Counter, OrderedDict
+import re
+import time
+from flask import Flask, jsonify, render_template, send_file, request
+import os
+from PIL import Image
+from io import BytesIO
+import ddp_util.pyiiif as iiif
+from ddp_util.serve import create_pagers
+import requests
+from pathlib import Path
+from flasgger import Swagger
+
+
+p = {
+    "root":"./misc/1000_CVCharters/",
+    "filename": "*.seals.pred.json",
+    "templates": "/home/anguelos/work/src/didipcv/apps/ddpa_seals/templates",
+    "port": 5003,
+    "fsdb_url": "http://localhost:5000/",
+    "debug": 0,
+    "default_format": (["json", "html"]),
+    "page_itemcount": 25,
+    "verbose": 1,
+    "scan_services": False,
+}
+
+
+args, _ = fargv.fargv(p)
+
+
+def parse_all(db_root, archive_idx, fond_idx, charter_idx, img_idx):
+    img_paths = [str(p) for p in Path(db_root).glob(f'*/*/*/*.img.*')]
+    img_idx = {p.split("/")[-1].split(".")[0]: p for p in img_paths}
+    charter_paths = [str(p) for p in Path(db_root).glob(f'*/*/*')]
+    charter_idx = {p.split("/")[-1]: p for p in charter_paths}
+    fond_paths = [str(p) for p in Path(db_root).glob(f'*/*')]
+    fond_idx = {p.split("/")[-1]: p for p in fond_paths}
+    archive_paths = [str(p) for p in Path(db_root).glob(f'*') if p.is_dir()]
+    archive_idx = {p.split("/")[-1]: p for p in archive_paths}
+    all_idx = {}
+    all_idx.update(img_idx)
+    all_idx.update(charter_idx)
+    all_idx.update(fond_idx)
+    all_idx.update(archive_idx)
+    return img_idx, charter_idx, fond_idx, archive_idx, all_idx
+
+
+
+
+class Charter:
+    def __init__(self, path, ignore_objects=False) -> None:
+        self.path = path
+        self.md5 = path.split("/")[-1]
+        self.atom_id = open(f"{path}/CH.atom_id.txt").read().strip()
+        self.imgs = [str(p).split("/")[-1].split(".")[0] for p in Path(path).glob(f'*.img.*')]
+        self.fond = path.split("/")[-2]
+        self.archive = path.split("/")[-3]
+        if not ignore_objects:
+            self.load_json()
+        else:
+            self.object_data = {}
+        print(f"CUSTOM FOND NAME: {self.fond_name} { self.atom_id.split('/')[-2]}")
+        print(f"CHARTER md5 : {self.md5} \n atom_id {self.atom_id} \nfond:{self.fond} \narchive:{self.archive} fond_name:\n{self.fond_name} {self.archive_name}")
+
+    def load_json(self):
+        data = {}
+        for image in self.imgs:
+            d = json.load(open(f"{self.path}/{image}.seals.pred.json", "r"))
+            
+            objects = []
+            for n in range(len(d["rect_LTRB"])):
+                objects.append([d["class_names"][d["rect_classes"][n]], d["rect_LTRB"][n], d["class_colors"][d["rect_classes"][n]], d["rect_captions"][n].split("$conf:")[-1]])
+                # [class, rect, color, caption]
+            img_data = {"width": d["image_wh"][0], "height": d["image_wh"][1], "objects":objects}
+            data[image] = img_data
+        self.object_data = data
+
+    @property
+    def name(self):
+        return self.atom_id.split("/")[-1]
+
+    @property
+    def fond_name(self):
+        return self.atom_id.split("/")[-2]
+
+    @property
+    def archive_name(self):
+        return self.atom_id.split("/")[-3]
+
+    def __hash__(self) -> int:
+        return hash(self.md5)
+
+class Fond:
+    def __init__(self, path) -> None:
+        self.path = path
+        self.md5 = path.split("/")[-1]
+        self.archive = path.split("/")[-2]
+        #self.charters = [str(p).split("/")[-1] for p in Path(path).glob(f'*')]
+        self.charters = [Charter(str(p)) for p in Path(path).glob(f'*') if re.match(r'^[0-9a-f]{32}$', str(p).split("/")[-1])]
+        self.name = self.charters[0].fond_name
+        self.archive_name = self.charters[0].archive_name
+
+    def __hash__(self) -> int:
+        return hash(self.md5)
+
+class Archive:
+    def __init__(self, path) -> None:
+        self.path = path
+        self.md5 = path.split("/")[-1]
+        #self.fonds = [str(p).split("/")[-1] for p in Path(path).glob(f'*')]
+        self.fonds = [Fond(str(p)) for p in Path(path).glob(f'*')]
+
+    def __hash__(self) -> int:
+        pass
+
+class FSDB:
+    def __init__(self, path) -> None:
+        self.path = path
+        #self.archives = [str(p).split("/")[-1] for p in Path(path).glob(f'*') if p.is_dir()]
+        self.archives = [str(p).split("/")[-1] for p in Path(path).glob(f'*') if p.is_dir()]
+
+    def __hash__(self) -> int:
+        pass
+
+
+def load_seals(root, filename):
+    charters2images2imagerects = defaultdict(lambda:defaultdict(lambda:[])) # to store the json data
+    json_paths = list(glob.glob(f"{root}/*/*/*/{filename}"))
+    class_names = json.load(open(json_paths[0], "r"))["class_names"]
+    classes2imagerects = {name:[] for name in class_names}
+    images2imagerects = defaultdict(lambda:[])
+    charters2imagerects = defaultdict(lambda:[])
+    imgmd52imgpath = {}
+    for n, gt_fname in enumerate(json_paths):
+        gtfname_pieces = gt_fname.split("/")
+        image_md5 = gtfname_pieces[-1].split(".")[0]
+        charter_md5 = gtfname_pieces[-2]
+        #TODO change this for IIIF on the image if efficient
+        imgpath = glob.glob("/".join(gtfname_pieces[:-1]+[gtfname_pieces[-1].split(".")[0]+".img.*"]))[0]
+        imgmd52imgpath[image_md5] = imgpath
+        object_data = json.load(open(gt_fname, "r"))
+        object_data["image_md5"] = image_md5
+        object_data["charter_md5"] = charter_md5
+        rect_LTRB, rect_classes, class_names = object_data["rect_LTRB"], object_data["rect_classes"], object_data["class_names"]
+        for n in range(len(object_data["rect_LTRB"])):
+            imagerect = (image_md5,n, rect_LTRB[n], class_names[rect_classes[n]], charter_md5)
+            classes2imagerects[class_names[rect_classes[n]]].append(imagerect)
+            images2imagerects[image_md5].append(imagerect)
+            charters2imagerects[charter_md5].append(imagerect)
+            charters2images2imagerects[charter_md5][image_md5].append(imagerect)
+    return class_names, charters2images2imagerects, classes2imagerects, images2imagerects, charters2imagerects, imgmd52imgpath
+
+
+
+app = Flask(__name__,  template_folder=os.path.join(os.path.pardir, 'templates'))
+app.config['EXPLAIN_TEMPLATE_LOADING'] = True
+
+
+@app.route('/classes')
+def serve_classes():
+    """
+    Retrieves a list of all available classes from the database. This endpoint is used to fetch metadata regarding different classifications.
+    ---
+    tags:
+      - Classification
+    responses:
+      200:
+        description: A JSON list of class names.
+      406:
+        description: The requested format is not available.
+    """
+    file_format = request.args.get('format')
+    if file_format is None:
+        file_format = args.default_format
+    if file_format == "json":
+        return jsonify(class_names)
+    if file_format == "html":
+        class_cardinalities = [(cn, len(classes2imagerects[cn])) for cn in class_names]
+        return render_template('classes.html', data=class_cardinalities)  # Return HTML response
+    return "Unsupported format", 406
+
+
+#TODO this might be better served by IIIF on the full images
+@app.route('/crops/<imgmd5>/<LTRB_str>')
+def serve_crops(imgmd5, LTRB_str):
+    """
+    Provides a cropped image based on specified MD5 hash and LTRB (Left, Top, Right, Bottom) coordinates. Useful for retrieving portions of images.
+    ---
+    tags:
+      - Image Serving
+    parameters:
+      - in: path
+        name: imgmd5
+        type: string
+        required: true
+        description: MD5 hash of the image to identify it in the database.
+      - in: path
+        name: LTRB_str
+        type: string
+        required: true
+        description: The coordinates for cropping the image formatted as 'left,top,right,bottom'.
+    responses:
+      200:
+        description: A cropped portion of the image is returned in JPEG format.
+      404:
+        description: No image found with the provided MD5 hash.
+    """
+    file_format = request.args.get('format')
+    LTRB = tuple([int(d) for d in LTRB_str.split(",")])
+    if len(LTRB) == 1: # we consider it means the Nth object of the image
+        LTRB = images2imagerects[imgmd5][LTRB[0]][2]
+    pil_image = Image.open(imgmd52imgpath[imgmd5])
+    pil_image = pil_image.crop(LTRB)
+    image_stream = BytesIO()
+    if file_format is None:
+        file_format = "JPEG"
+    if file_format.lower() == "jpeg":
+        pil_image.save(image_stream, format="JPEG")
+        image_stream.seek(0)
+        return send_file(image_stream, mimetype='image/jpeg')
+    elif file_format.lower() == "bmp":
+        pil_image.save(image_stream, format="BMP")
+        image_stream.seek(0)
+        return send_file(image_stream, mimetype='image/bmp')
+    elif file_format.lower() == "webp":
+        pil_image.save(image_stream, format="WebP")
+        image_stream.seek(0)
+        return send_file(image_stream, mimetype='image/webp')
+
+
+@app.route('/iiif/<imgmd5>')
+@app.route('/iiif/<imgmd5>/<region>/<size>/<rotation>/<quality>.<format>')
+def image_iiif(imgmd5, region="full", size="max", rotation="0", quality="default", format="jpg"):
+    """
+    Retrieves detailed IIIF image information based on provided parameters, allowing specific adjustments to the image rendition like region cropping, size scaling, rotation, and quality control.
+    ---
+    tags:
+      - Image Serving
+    parameters:
+      - in: path
+        name: imgmd5
+        type: string
+        required: true
+        description: MD5 hash of the image.
+      - in: path
+        name: region
+        type: string
+        required: true
+        description: The specific region of the image to be displayed.
+      - in: path
+        name: size
+        type: string
+        required: true
+        description: Desired size of the image output.
+      - in: path
+        name: rotation
+        type: string
+        required: true
+        description: Rotation angle of the image in degrees.
+      - in: path
+        name: quality
+        type: string
+        required: true
+        description: The quality of the image output.
+      - in: path
+        name: format
+        type: string
+        required: true
+        description: The format of the image output (e.g., 'jpg', 'png').
+    responses:
+      200:
+        description: A detailed IIIF image view is returned according to the specified parameters.
+      404:
+        description: Image not found with the provided MD5 hash.
+    """
+    charter_md5, region, size, rotation, quality, format = [iiif.decode_url(d) for d in [imgmd5, region, size, rotation, quality, format]] # TODO(anguelos) see how to clean up this
+    print(f"IIIF: imgmd5:{imgmd5} region:{region} size:{size} rotation:{rotation} quality:{quality} format:{format}")
+    image = Image.open(f"{imgmd52imgpath[imgmd5]}")
+    content, mimetype = iiif.compute_iiif(image, imgmd5=charter_md5, region=region, size=size, rotation=rotation, quality=quality, format=format)
+    if mimetype == "application/json":
+        return jsonify(content)
+    else:
+        return send_file(content, mimetype=mimetype)
+
+
+@app.route('/objects/<imgmd5>/<int:object_num>')
+def serve_object(imgmd5, object_num):
+    """
+    Serves detailed information about a specific object in an image, identified by an MD5 hash and an object index.
+    ---
+    tags:
+      - Object Retrieval
+    parameters:
+      - in: path
+        name: imgmd5
+        type: string
+        required: true
+        description: MD5 hash of the image to identify it in the database.
+      - in: path
+        name: object_num
+        type: integer
+        required: true
+        description: Index number of the object in the image to retrieve details for.
+    responses:
+      200:
+        description: Object details returned in JSON format.
+      404:
+        description: No object found for the given MD5 hash and object index.
+    """    
+    file_format = request.args.get('format')
+    if file_format is None:
+        file_format = args.default_format
+    if file_format == "json":
+        return jsonify(images2imagerects[imgmd5][object_num])
+    elif file_format == "html":
+        imgmd5, objectnumber, LTRB, classname, chartermd5 = images2imagerects[imgmd5][object_num]#[skip:skip+itemcount]
+        return render_template('object.html',imgmd5=imgmd5, objectnumber=objectnumber,
+                               LTRB=[int(n) for n in LTRB], classname=classname, chartermd5=chartermd5, fsdb_url=args.fsdb_url)  # Return HTML response
+    return "Unsupported format", 406
+
+
+@app.route('/classitems/<classname>')
+@app.route('/classitems/<classname>/<int:skip>/<int:itemcount>')
+def serve_classitems(classname, skip=0, itemcount=args.page_itemcount):
+    """
+    Retrieves items of a specific class with optional pagination. The response includes items from the specified class, with controls for skipping items and limiting the number per request.
+    ---
+    tags:
+      - Classification
+    parameters:
+      - in: path
+        name: classname
+        type: string
+        required: true
+        description: The name of the class to fetch items for.
+      - in: query
+        name: skip
+        type: integer
+        default: 0
+        required: false
+        description: Number of items to skip (for pagination).
+      - in: query
+        name: itemcount
+        type: integer
+        default: 10
+        required: false
+        description: Number of items to return in the request.
+    responses:
+      200:
+        description: A list of class items returned in JSON format.
+      404:
+        description: Class not found.
+    """    
+    file_format = request.args.get('format')
+    if file_format is None:
+        file_format = args.default_format
+    data = classes2imagerects[classname]
+    totalitems = len(data)
+    first, prev, current, following, last  = create_pagers(totalitems, skip, itemcount)
+    print(prev, current, following)
+    current_begin = current[0]
+    current_end = min(current[0]+current[1], totalitems)
+    data = data[current_begin:current_end]
+    
+    #imagerect = (image_md5,n, rect_LTRB[n], class_names[rect_classes[n]], charter_md5)
+    rich_data = []
+    for datum in data:
+        imgmd5, objectnumber, LTRB, classname, _ = datum
+        charter_path = str(Path(imgmd52imgpath[imgmd5]).parent)
+        rich_data.append({"imgmd5":imgmd5, "objectnumber":objectnumber, "LTRB":LTRB, "classname":classname, "charter":Charter(charter_path, ignore_objects=True)})
+    if file_format == "json":
+        return jsonify(data)
+    elif file_format == "html":
+        return render_template('object_list_thumbnailed.html', data=rich_data, fsdb_url=args.fsdb_url, 
+                                classname=classname, first=first, prev=prev, current=current,following=following, last=last, totalitems=totalitems)  # Return HTML response
+    return "Unsupported format", 406
+
+
+@app.route('/charter/<md5>')
+def render_charter(md5):
+    charter = Charter(charter_idx[md5])
+    return render_template(f'charter.html', obj=charter, images=charter.object_data, services=valid_services)
+
+
+@app.route('/health')
+def health_check():
+    """
+    A simple health check endpoint to confirm that the Flask microservice service is operational. This can be used by other microservices for monitoring and coordinating.
+    ---
+    tags:
+      - Monitoring
+    responses:
+      200:
+        description: Service is up and running.
+    """
+    return "OK", 200
+
+def is_service_available(service):
+    try:
+        url = f"{service['host']}:{service['port']}/health"
+        response = requests.get(url, timeout=2)
+        return response.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
+
+MICROSERVICES = [
+    {"name": "Static", "host": "http://127.0.0.1", "port": 5000},
+    {"name": "Seals", "host": "http://127.0.0.1", "port": 5003},
+    {"name": "Hands", "host": "http://127.0.0.1", "port": 5005},
+]
+
+valid_services = []
+
+
+def update_services_status(run_once: bool = False) -> None:
+    run = True
+    while run:
+        valid_services.clear()
+        for service in MICROSERVICES:
+            service["status"] = is_service_available(service)
+            if service["status"]:
+                valid_services.append(service)
+        if args.verbose > 2:
+            print(f"Services status: {valid_services}")
+        time.sleep(5)
+        run = run_once
+
+
+if args.scan_services:
+    threading.Thread(target=update_services_status, daemon=True).start()
+else:
+    update_services_status()
+
+
+app.config['SWAGGER'] = {
+    'title': 'DiDip Layout App. API',
+    'uiversion': 3
+}
+
+swagger_config = {
+    "headers": [],
+    "specs": [
+        {
+            "endpoint": 'apispec_1',
+            "route": '/apispec_1.json',
+            "rule_filter": lambda rule: True,  # All routes included
+            "model_filter": lambda tag: True,  # All models included
+        }
+    ],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/documentation/"
+}
+
+swagger = Swagger(app, config=swagger_config)
+
+
+
+if __name__ == "__main__":
+    start_time = time.time()
+    class_names, charters2images2imagerects, classes2imagerects, images2imagerects, charters2imagerects, imgmd52imgpath = load_seals(args.root, args.filename)
+    img_idx, charter_idx, fond_idx, archive_idx, all_idx = parse_all(args.root, None, None, None, None)
+    load_time = time.time() - start_time
+    print(load_time)
+    loaded_templates = [template for template in app.jinja_loader.list_templates()]
+    print(f"http://127.0.0.1:{args.port}/classes?format=html")
+    print(f"http://127.0.0.1:{args.port}/documentation/")
+    print(f"http://127.0.0.1:{args.port}/flasgger_static")
+    imagerect = classes2imagerects["Img:Seal"][0]
+    print(f"http://127.0.0.1:{args.port}/crops/{imagerect[0]}/{int(imagerect[2][0])},{int(imagerect[2][1])},{int(imagerect[2][2])},{int(imagerect[2][3])}?format=jpeg")
+    print(f"http://127.0.0.1:{args.port}/objects/{imagerect[0]}/{imagerect[1]}?format=html")
+    print(f"MICROSERVICES: {MICROSERVICES}")
+    app.run(debug=args.debug, port=args.port)
+    

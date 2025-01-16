@@ -2,13 +2,36 @@
 <html>
   <head>
     <title>Object</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #e6f2ff; /* Slightly different light background color */
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        padding: 10px;
+        border: 1px solid #ddd;
+        text-align: left;
+      }
+      th {
+        background-color: #4CAF50;
+        color: white;
+      }
+      tr:nth-child(even) {
+        background-color: #f2f2f2;
+      }
+    </style>
   </head>
-    <body>
-        <h2>{{classname}}/{{objectnumber}}</h2>
-        <table>
-            <tr><td>Class Name</td><td>{{classname}}</td></tr>
-            <tr><td>Crop</td><td><a href="/crops/{{imgmd5}}/{{LTRB.0}},{{LTRB.1}},{{LTRB.2}},{{LTRB.3}},?format=jpeg"><img src="/crops/{{imgmd5}}/{{LTRB.0}},{{LTRB.1}},{{LTRB.2}},{{LTRB.3}}?format=jpeg" width="200"/></a></td></tr>
-            <tr><td>Image</td><td><a href="{{fsdb_url}}/image/{{imgmd5}}">{{imgmd5}}</a></td></tr>
-            <tr><td>Charter</td><td><a href="{{fsdb_url}}/charter/{{chartermd5}}">{{chartermd5}}</a></td></tr>
-    </body>
+  <body>
+    <h2>{{classname}}/{{objectnumber}}</h2>
+    <table>
+      <tr><td>Class Name</td><td>{{classname}}</td></tr>
+      <tr><td>Crop</td><td><a href="/crops/{{imgmd5}}/{{LTRB.0}},{{LTRB.1}},{{LTRB.2}},{{LTRB.3}},?format=jpeg"><img src="/crops/{{imgmd5}}/{{LTRB.0}},{{LTRB.1}},{{LTRB.2}},{{LTRB.3}}?format=jpeg" width="200"/></a></td></tr>
+      <tr><td>Image</td><td><a href="{{fsdb_url}}/image/{{imgmd5}}">{{imgmd5}}</a></td></tr>
+      <tr><td>Charter</td><td><a href="{{fsdb_url}}/charter/{{chartermd5}}">{{chartermd5}}</a></td></tr>
+    </table>
+  </body>
 </html>

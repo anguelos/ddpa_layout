@@ -2,28 +2,104 @@
 <html>
   <head>
     <title>List of objects with thumbnails</title>
+    <style>
+      body {
+            background-color: #d1eba3;
+            font-family: 'Garamond', serif;
+            color: #3e2723;
+      }
+      table {
+        width: 80%; /* Adjust table width to be less than 100% */
+        border-collapse: collapse;
+        margin: auto; /* Center the table */
+      }
+      th, td {
+        padding: 10px;
+        border: 1px solid #ddd;
+        text-align: left;
+      }
+      th {
+        background-color: #4CAF50;
+        color: white;
+      }
+      tr:nth-child(even) {
+        background-color: #f2f2f2;
+      }
+      /* Set column widths based on the proportions [2, 8, 7, 4, 2, 12] */
+      th:nth-child(1), td:nth-child(1) {
+        width: 5%; /* 2 parts */
+      }
+      th:nth-child(2), td:nth-child(2) {
+        width: 20%; /* 8 parts */
+      }
+      th:nth-child(3), td:nth-child(3) {
+        width: 17.5%; /* 7 parts */
+      }
+      th:nth-child(4), td:nth-child(4) {
+        width: 10%; /* 4 parts */
+      }
+      th:nth-child(5), td:nth-child(5) {
+        width: 5%; /* 2 parts */
+      }
+      th:nth-child(6), td:nth-child(6) {
+        width: 30%; /* 12 parts */
+      }
+      /* Pagination styling */
+      .pagination {
+        display: inline-block;
+        margin: 10px 0;
+      }
+      .pagination a {
+        color: #4CAF50;
+        float: left;
+        padding: 8px 16px;
+        text-decoration: none;
+        border: 1px solid #ddd;
+        margin: 0 8px;
+        border-radius: 4px;
+        font-size: 18px;
+      }
+      .pagination a:hover {
+        background-color: #ddd;
+      }
+      .pagination .current {
+        background-color: #4CAF50;
+        color: white;
+        pointer-events: none;
+        border: 1px solid #4CAF50;
+      }
+    </style>
   </head>
   <body>
     <h2>{{totalitems}} objects of class {{classname}} found, showing {{data|length}}</h2>
-    <div><table border="1"><tr>
-      <td><a href="/classitems/{{classname}}/0/{{prev.1}}?format=html">0-{{prev.1}}</td>
-      <td><a href="/classitems/{{classname}}/{{prev.0}}/{{prev.1}}?format=html">{{prev.0}}-{{prev.1}}</td>
-      <td><a href="/classitems/{{classname}}/{{current.0}}/{{current.1}}?format=html">{{current.0}}-{{current.1}}</td>
-      <td><a href="/classitems/{{classname}}/{{following.0}}/{{following.1}}?format=html">{{following.0}}-{{following.1}}</td>
-      <td><a href="/classitems/{{classname}}/{{totalitems-current.1}}/{{following.1}}?format=html">{{totalitems-following.1}}-{{following.1}}</td>
-    </tr>
-    </table></div>>
+    <div class="pagination">
+      <a href="/classitems/{{classname}}/{{first.0}}/{{first.1}}?format=html" title="First Page">⏮</a>
+      <a href="/classitems/{{classname}}/{{prev.0}}/{{prev.1}}?format=html" title="Previous Page">◀</a>
+      <a class="current" href="#" title="Current Page">●</a>
+      <a href="/classitems/{{classname}}/{{following.0}}/{{following.1}}?format=html" title="Next Page">▶</a>
+      <a href="/classitems/{{classname}}/{{last.0}}/{{last.1}}?format=html" title="Last Page">⏭</a>
+    </div>
+
     <table border="1">
-      <tr><th>#</th><th>Charter md5</th><th>Image md5</th><th>Class</th><th>Object number(in image)</th><th>Crop</th></tr>
+      <tr><th>#</th><th>Charter</th><th>Image ID</th><th>Class</th><th>Object number(in image)</th><th>Crop</th></tr>
       {% for imagerects in data %}
       <tr>
-        <td>{{loop.index}}</td> 
-        <td><a href="{{fsdb_url}}/charter/{{imagerects.4}}">{{imagerects.4}}</a></td>
-        <td><a href="{{fsdb_url}}/image/{{imagerects.0}}">{{imagerects.0}}</a></td>
-        <td>{{imagerects.3}}</td>
-        <td><a href="/crops/{{imagerects.0}}/{{imagerects.1}}">{{imagerects.1}}</a> </td>
-        <td><a href="/crops/{{imagerects.0}}/{{imagerects.1}}"><img src="/crops/{{imagerects.0}}/{{imagerects.1}}" width="100"/></a> </td>
+        <td>{{loop.index + current.0}}</td> 
+        <td><a href="/charter/{{imagerects.charter.md5}}">{{imagerects.charter.archive_name}}/{{imagerects.charter.fond_name}}/{{imagerects.charter.name}}</a></td>
+        <td><a href="/iiif/{{imagerects.imgmd5}}">{{imagerects.imgmd5}}</a></td>
+        <td>{{imagerects.classname}}</td>
+        <td>{{imagerects.objectnumber}}</td>
+        <td><a href="/crops/{{imagerects.imgmd5}}/{{imagerects.objectnumber}}"><img src="/crops/{{imagerects.imgmd5}}/{{imagerects.objectnumber}}" width="100"/></a></td>
       </tr>
       {% endfor %}
+    </table>
+
+    <div class="pagination">
+      <a href="/classitems/{{classname}}/{{first.0}}/{{first.1}}?format=html" title="First Page">⏮</a>
+      <a href="/classitems/{{classname}}/{{prev.0}}/{{prev.1}}?format=html" title="Previous Page">◀</a>
+      <a class="current" href="#" title="Current Page">●</a>
+      <a href="/classitems/{{classname}}/{{following.0}}/{{following.1}}?format=html" title="Next Page">▶</a>
+      <a href="/classitems/{{classname}}/{{last.0}}/{{last.1}}?format=html" title="Last Page">⏭</a>
+    </div>
   </body>
 </html>
