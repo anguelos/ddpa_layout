@@ -41,6 +41,28 @@ def count_charter_objects(charter_path, filext=".seals.pred.json", min_width=501
     else:
         return {}, {}, []
 
+object_colors= {"No Class":"#646B63",
+    "Ignore":"#23282B",
+    "Img:CalibrationCard":"#763C28",
+    "Img:Seal":"#316650",
+    "Img:WritableArea": "#00BB2D",
+    "Wr:OldText":"#287233",
+    "Wr:OldNote":"#231A24",
+    "Wr:NewText":"#F5D033",
+    "Wr:NewOther": "#063971",
+    "WrO:Ornament": "#1E2460",
+    "WrO:Fold": "#641C34"
+}
+
+def render_seals(seals_path, file_ext=".seals.vis.png", color_classes=object_colors):
+    seals_path = Path(seals_path)
+    img_path = seals_path.name.split(".")[0]
+    img_path = glob.glob(f"{str(seals_path.parent)}/{img_path}.img.*")[0]
+    
+    
+    
+    
+
 def count_statistics(charter_list):
     accumulate_all = defaultdict(lambda :0)
     accumulate_best = defaultdict(lambda :0)
