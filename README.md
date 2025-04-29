@@ -21,7 +21,8 @@ ls ./runs/train/$(ls -Art ./runs/tr* | tail -n 1)
 ```
 
 ```bash
-PYTHONPATH="./" ./bin/ddp_seals_detect -weights ./runs/train/mytrain/weights/best.pt -img_paths /mnt/bkup/tmp/data/fsdb/*/*/*/*.img.*
+#PYTHONPATH="./" ./bin/ddp_seals_detect -weights ./runs/train/mytrain/weights/best.pt -img_paths /mnt/bkup/tmp/data/fsdb/*/*/*/*.img.*
+PYTHONPATH="./legacy/:./"  ./bin/ddp_layout_detect -weights /home/anguelos/work/src/didipcv/misc/seals/yolov5/1Kimg.pt -img_paths ../maria_pia/tmp/ds/IT-BSNSP/*/*/*.jpg
 ```
 
 ** Run on the full database
