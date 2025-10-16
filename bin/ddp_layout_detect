@@ -18,6 +18,7 @@ import json
 import tqdm
 import re
 import glob
+import fsdb
 
 
 def get_md5(path):
@@ -75,12 +76,12 @@ def filter_fnames_for_resume(fnames, pred_filext):
 
 
 p = {
-    "appname": "seals",
+    "appname": "layout",
     "pred_filext": ".{appname}.pred.json",
     "imgsz": 1024,
     "frat_comment_begin_marker": "$",
     #"img_paths": set(["../../1000_CVCharters/AT-DAW/d3a416ef7813f88859c305fb83b20b5b/41a23d5bfd6d87c6f1d19f27fdc6e501/e24d5c21fd4a851da7817c75eed15b47.img.jpg"]),
-    "img_paths": set([]),
+    #"img_paths": set([]),
     "charter_dirs": set(["./"]), # set(["../../1000_CVCharters/AT-DAW/d3a416ef7813f88859c305fb83b20b5b/41a23d5bfd6d87c6f1d19f27fdc6e501/"])  should also be fine
     "weights": "/mnt/data/home/anguelos/work/src/didipcv/misc/resolution_regressor/data/1Kimg.pt",
     "classes": '["No Class", "Ignore", "Img:CalibrationCard", "Img:Seal", "Img:WritableArea", "Wr:OldText", "Wr:OldNote", "Wr:NewText", "Wr:NewOther", "WrO:Ornament", "WrO:Fold"]',
@@ -94,11 +95,162 @@ p = {
     "preview": 0,
     "save_crops": 0,
     "overwrite_existing": 0,
+    "progress": False,
 }
 
 
-if __name__ == "__main__":
+def main_ddp_seals_detect(p):
+    p.update(fsdb.get_image_iteration_fargv_dict(replace_postfix=f".layout.pred.json"))
+    args, _ = fargv.fargv(p)
+    for input_img, output_path in fsdb.generate_app_image_files(args):
+        print(f"MAIN: Input: {input_img} => Output: {output_path}")
+    sys.exit(0)
+    print("Before:",args.img_paths)
+    all_img_paths = list(sorted(args.img_paths))
+    for charter_dir in args.charter_dirs:
+        print(f"Charter Dir: {charter_dir}", end=" ")
+        if Path(charter_dir).is_dir() and Path(f"{charter_dir}/CH.cei.xml").exists():
+            #all_img_paths += [str(f) for f in list(Path(charter_dir).glob("*.img.*"))]
+            img_glob = f"{charter_dir}/*.img.*"
+            charter_images = [str(f) for f in glob.glob(img_glob)]
+            print(f"{img_glob} Added {len(charter_images)} images")
+            all_img_paths += charter_images
+            
+    args.img_paths = list(all_img_paths)
+    print("AFTER:",args.img_paths)
 
+    
+    model = DetectMultiBackend(
+        weights=args.weights, device=torch.device(args.device))
+    model = model.float()
+
+    print(f"Model: {model.names}, Classes: {args.classes}")
+    assert len(model.names) == len(eval(args.classes))
+
+    model.names = eval(args.classes)
+
+    imgsz = utils.general.check_img_size(args.imgsz)  # check image size
+
+    from utils.datasets import LoadImages
+
+    #dl = LoadImages(filter_fnames_for_resume(args.img_paths, args.pred_filext), imgsz, 32)
+    dl = LoadImages(args.img_paths, imgsz, 32)
+
+    dt, seen = [0.0, 0.0, 0.0], 0
+
+    names = eval(args.classes)
+    class_colors = eval(args.class_colors)
+
+    if args.preview:
+        cv2.namedWindow("Seals")
+        cv2.resizeWindow("Seals", 1700, 800)
+
+    frat_user_str = create_frat_userid(args.appname, args.weights)
+    progress = tqdm.tqdm(dl)
+    for path, im, im0s, vid_cap, s in progress:
+        progress.set_description(f"{Path(path).name}")
+        progress.refresh()
+        im = torch.from_numpy(im).to(args.device)
+        # print("im.size():",im.size(),"  im0s.size()",im0s.shape)
+        # im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
+        im = im.float()
+        im /= 255  # 0 - 255 to 0.0 - 1.0
+        if len(im.shape) == 3:
+            im = im[None]  # expand for batch dim
+        pred = model(im)
+        # pred = yolov5.utils.general.non_max_suppression(pred, conf_thres=args.conf_thres, iou_thres=args.iou_thres, classes=None, max_det=args.max_det)
+
+        pred = non_max_suppression(pred, conf_thres=args.conf_thres,
+                                   iou_thres=args.iou_thres, classes=None, max_det=args.max_det)
+        # imgsz = yolov5.utils.general.scale_coords()
+        # im0=im0s.copy()
+        frat_dict = {"img_md5": get_md5(path), "user": frat_user_str,
+                     "class_names": names, "class_colors": class_colors,
+                     "image_wh": [im0s.shape[1], im0s.shape[0]],
+                     "rect_LTRB": [], "rect_captions": [], "rect_classes": []}
+
+        for i, det in enumerate(pred):  # per image
+            seen += 1
+            p, im0, frame = path, im0s.copy(), getattr(dl, 'frame', 0)
+
+            p = Path(p)  # to Path
+            save_dir = Path("/tmp")
+            save_path = str(save_dir / p.name)  # im.jpg
+            txt_path = str(save_dir / 'labels' / p.stem) + \
+                ('' if dl.mode == 'image' else f'_{frame}')  # im.txt
+            s += '%gx%g ' % im.shape[2:]  # print string
+            # normalization gain whwh
+            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]
+            # imc = im0.copy() if save_crop else im0  # for save_crop
+
+            annotator = Annotator(im0, line_width=4, example=str(names))
+
+            if len(det):
+                # Rescale boxes from img_size to im0 size
+                from utils.general import scale_coords
+                det[:, :4] = scale_coords(
+                    im.shape[2:], det[:, :4], im0.shape).round()
+
+                # Print results
+                for c in det[:, -1].unique():
+                    n = (det[:, -1] == c).sum()  # detections per class
+                    s = 's'
+                    s += f"{n} {names[int(c)]}{s * (n > 1)}"
+                save_txt = False
+                save_img = True
+                hide_labels = False
+                hide_conf = False
+                for n, (*xyxy, conf, cls) in enumerate(reversed(det)):
+                    frat_dict["rect_LTRB"].append(
+                        torch.tensor(xyxy).to("cpu").numpy().tolist())
+                    frat_dict["rect_captions"].append(
+                        f"{args.frat_comment_begin_marker}conf:{conf}")
+                    frat_dict["rect_classes"].append(int(cls))
+                    # print(f"Det: {xyxy}\tConf:{conf}\tCls:{cls}")
+                    # if save_txt:  # Write to file
+                    #    xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                    #    line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
+                    #    with open(txt_path + '.txt', 'a') as f:
+                    #        f.write(('%g ' * len(line)).rstrip() % line + '\n')
+                    if save_img or args.save_crops or args.preview:  # Add bbox to image
+                        c = int(cls)  # integer class
+                        label = None if hide_labels else (
+                            names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        annotator.box_label(xyxy, label, color=colors(c, True))
+                        if args.save_crops and names[int(cls)] in eval(args.crop_classes):
+                            class_clean_name = re.sub(
+                                r'[^a-zA-Z0-9]', '_', names[int(cls)])
+                            class_dir_path = replace_img_basename(
+                                path, f".{args.appname}.crops")
+                            # print("CLass Dir Path",repr(class_dir_path),"\n\n")
+                            # class_dir_path.mkdir(parents=True, exist_ok=True)
+                            crop_path = Path(
+                                f"{class_dir_path}/{n}.{class_clean_name}.jpg")
+                            save_one_box(xyxy, im0s.copy(),
+                                         file=crop_path, BGR=True)
+            # Stream results
+            im0 = annotator.result()
+            if args.preview:
+                cv2.imshow("Seals", cv2.resize(im0, (1600, 850)))
+                cv2.resizeWindow("Seals", 1700, 900)
+                cv2.moveWindow("Seals", 50, 50)
+                cv2.waitKey(args.preview_delay)
+        if args.preview:
+            cv2.destroyAllWindows()
+
+        fratpath = replace_img_basename(path, args.pred_filext)
+        if not (fratpath.is_file()) or args.overwrite_existing:
+            # print(frat_dict)
+            open(fratpath, "w").write(json.dumps(frat_dict, indent=2))
+
+        
+
+if __name__ == "__main__":
+    main_ddp_seals_detect(p)
+    sys.exit(0)
+
+
+if __name__ == "__main__":
     args, _ = fargv.fargv(p)
     print("Before:",args.img_paths)
     all_img_paths = list(sorted(args.img_paths))
@@ -120,9 +272,7 @@ if __name__ == "__main__":
     model = model.float()
 
     print(f"Model: {model.names}, Classes: {args.classes}")
-    if set(model.names) != set(eval(args.classes)):
-        print(f"Warning: Model classes {model.names} do not match args.classes {args.classes} Aborting...", file=sys.stderr)
-        # model.names = model.names
+    assert len(model.names) == len(eval(args.classes))
 
     model.names = eval(args.classes)
 
