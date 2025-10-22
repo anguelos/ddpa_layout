@@ -10,16 +10,18 @@ from flask import Flask, jsonify, render_template, send_file, request
 import os
 from PIL import Image
 from io import BytesIO
-import ddp_util.pyiiif as iiif
-from ddp_util.serve import create_pagers
+from ddp_util import iiif
+from ddp_util.iiif import create_pagers
 import requests
 from pathlib import Path
+
+from tqdm import tqdm
 from flasgger import Swagger
 
 
 p = {
     "root":"./misc/1000_CVCharters/",
-    "filename": "*.seals.pred.json",
+    "filename": "*.layout.pred.json",
     "templates": "/home/anguelos/work/src/didipcv/apps/ddpa_seals/templates",
     "port": 5003,
     "fsdb_url": "http://localhost:5000/",
@@ -28,6 +30,7 @@ p = {
     "page_itemcount": 25,
     "verbose": 1,
     "scan_services": False,
+    "host": "127.0.0.1"
 }
 
 
@@ -49,8 +52,6 @@ def parse_all(db_root, archive_idx, fond_idx, charter_idx, img_idx):
     all_idx.update(fond_idx)
     all_idx.update(archive_idx)
     return img_idx, charter_idx, fond_idx, archive_idx, all_idx
-
-
 
 
 class Charter:
@@ -129,14 +130,22 @@ class FSDB:
         pass
 
 
-def load_seals(root, filename):
+def load_seals(root, filename, verbose=0):
     charters2images2imagerects = defaultdict(lambda:defaultdict(lambda:[])) # to store the json data
+    t = time.time()
+    if verbose > 2:
+        print(f"Loading seals from {root} with pattern {filename}...")
     json_paths = list(glob.glob(f"{root}/*/*/*/{filename}"))
+    if verbose > 2:
+        print(f"Found {len(json_paths)} seal json files in { time.time()-t:.2f} sec. First {json_paths[0]}...")
     class_names = json.load(open(json_paths[0], "r"))["class_names"]
     classes2imagerects = {name:[] for name in class_names}
     images2imagerects = defaultdict(lambda:[])
     charters2imagerects = defaultdict(lambda:[])
     imgmd52imgpath = {}
+    t = time.time()
+    if verbose> 1 :
+        progress = tqdm(total=len(json_paths), desc="Loading seals")
     for n, gt_fname in enumerate(json_paths):
         gtfname_pieces = gt_fname.split("/")
         image_md5 = gtfname_pieces[-1].split(".")[0]
@@ -154,6 +163,12 @@ def load_seals(root, filename):
             images2imagerects[image_md5].append(imagerect)
             charters2imagerects[charter_md5].append(imagerect)
             charters2images2imagerects[charter_md5][image_md5].append(imagerect)
+        if verbose> 1 :
+            progress.update(1)
+    if verbose> 1 :
+        progress.close()
+    if verbose > 0:
+        print(f"Loaded seals data in {time.time()-t:.2f} seconds")
     return class_names, charters2images2imagerects, classes2imagerects, images2imagerects, charters2imagerects, imgmd52imgpath
 
 
@@ -464,7 +479,7 @@ swagger = Swagger(app, config=swagger_config)
 
 if __name__ == "__main__":
     start_time = time.time()
-    class_names, charters2images2imagerects, classes2imagerects, images2imagerects, charters2imagerects, imgmd52imgpath = load_seals(args.root, args.filename)
+    class_names, charters2images2imagerects, classes2imagerects, images2imagerects, charters2imagerects, imgmd52imgpath = load_seals(args.root, args.filename, verbose=args.verbose)
     img_idx, charter_idx, fond_idx, archive_idx, all_idx = parse_all(args.root, None, None, None, None)
     load_time = time.time() - start_time
     print(load_time)
@@ -476,5 +491,5 @@ if __name__ == "__main__":
     print(f"http://127.0.0.1:{args.port}/crops/{imagerect[0]}/{int(imagerect[2][0])},{int(imagerect[2][1])},{int(imagerect[2][2])},{int(imagerect[2][3])}?format=jpeg")
     print(f"http://127.0.0.1:{args.port}/objects/{imagerect[0]}/{imagerect[1]}?format=html")
     print(f"MICROSERVICES: {MICROSERVICES}")
-    app.run(debug=args.debug, port=args.port)
+    app.run(debug=args.debug, port=args.port, host=args.host)
     
