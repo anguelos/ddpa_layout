@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import threading
+
+import requests
 import fargv
 import glob
 import json
@@ -11,26 +13,40 @@ import os
 from PIL import Image
 from io import BytesIO
 from ddp_util import iiif
-from ddp_util.iiif import create_pagers
-import requests
+from ddp_util import create_pagers
+import ddp_util
+#import requests
 from pathlib import Path
 
 from tqdm import tqdm
 from flasgger import Swagger
 
 
+MICROSERVICES = [
+    {"name": "Static", "host": "http://127.0.0.1", "port": 5000},
+    {"name": "Seals", "host": "http://127.0.0.1", "port": 5003},
+    {"name": "Hands", "host": "http://127.0.0.1", "port": 5005},
+]
+
+config = ddp_util.config_dict()
+
+MICROSERVICES = config["MICROSERVICES"]
+layout_microservice_config = ddp_util.config.get_microservice("layout")
+static_microservice_config = ddp_util.config.get_microservice("static")
+print(f"\n\n    DDP Config: {repr(config)}\n\n")
+
 p = {
-    "root":"./misc/1000_CVCharters/",
+    "root":config["FSDB_ROOT"],
     "filename": "*.layout.pred.json",
-    "templates": "/home/anguelos/work/src/didipcv/apps/ddpa_seals/templates",
-    "port": 5003,
-    "fsdb_url": "http://localhost:5000/",
+    "templates": str(Path(__file__).parent / "templates"),
+    "port": int(layout_microservice_config["port"]),
+    "fsdb_url": f"{static_microservice_config['protocol']}://{static_microservice_config['host']}:{static_microservice_config['port']}/",
     "debug": 0,
     "default_format": (["json", "html"]),
     "page_itemcount": 25,
     "verbose": 1,
     "scan_services": False,
-    "host": "127.0.0.1"
+    "host": layout_microservice_config["host"]
 }
 
 
@@ -72,7 +88,7 @@ class Charter:
     def load_json(self):
         data = {}
         for image in self.imgs:
-            d = json.load(open(f"{self.path}/{image}.seals.pred.json", "r"))
+            d = json.load(open(f"{self.path}/{image}.layout.pred.json", "r"))
             
             objects = []
             for n in range(len(d["rect_LTRB"])):
@@ -294,14 +310,18 @@ def image_iiif(imgmd5, region="full", size="max", rotation="0", quality="default
       404:
         description: Image not found with the provided MD5 hash.
     """
-    charter_md5, region, size, rotation, quality, format = [iiif.decode_url(d) for d in [imgmd5, region, size, rotation, quality, format]] # TODO(anguelos) see how to clean up this
-    print(f"IIIF: imgmd5:{imgmd5} region:{region} size:{size} rotation:{rotation} quality:{quality} format:{format}")
-    image = Image.open(f"{imgmd52imgpath[imgmd5]}")
-    content, mimetype = iiif.compute_iiif(image, imgmd5=charter_md5, region=region, size=size, rotation=rotation, quality=quality, format=format)
-    if mimetype == "application/json":
-        return jsonify(content)
-    else:
-        return send_file(content, mimetype=mimetype)
+    pil_image = Image.open(imgmd52imgpath[imgmd5])
+    buffer, mimetype = iiif.compute_iiif(pil_image, imgmd5, region, size, rotation, quality, format)
+    return send_file(buffer, mimetype=mimetype)
+
+    # charter_md5, region, size, rotation, quality, format = [iiif.decode_url(d) for d in [imgmd5, region, size, rotation, quality, format]] # TODO(anguelos) see how to clean up this
+    # print(f"IIIF: imgmd5:{imgmd5} region:{region} size:{size} rotation:{rotation} quality:{quality} format:{format}")
+    # image = Image.open(f"{imgmd52imgpath[imgmd5]}")
+    # content, mimetype = iiif.compute_iiif(image, imgmd5=charter_md5, region=region, size=size, rotation=rotation, quality=quality, format=format)
+    # if mimetype == "application/json":
+    #     return jsonify(content)
+    # else:
+    #     return send_file(content, mimetype=mimetype)
 
 
 @app.route('/objects/<imgmd5>/<int:object_num>')
@@ -424,11 +444,7 @@ def is_service_available(service):
     except requests.exceptions.RequestException:
         return False
 
-MICROSERVICES = [
-    {"name": "Static", "host": "http://127.0.0.1", "port": 5000},
-    {"name": "Seals", "host": "http://127.0.0.1", "port": 5003},
-    {"name": "Hands", "host": "http://127.0.0.1", "port": 5005},
-]
+
 
 valid_services = []
 
