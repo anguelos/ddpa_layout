@@ -54,6 +54,8 @@ args, _ = fargv.fargv(p)
 
 
 def parse_all(db_root, archive_idx, fond_idx, charter_idx, img_idx):
+    if args.verbose > 1:
+        print(f"Parsing all files in {db_root}...")
     img_paths = [str(p) for p in Path(db_root).glob(f'*/*/*/*.img.*')]
     img_idx = {p.split("/")[-1].split(".")[0]: p for p in img_paths}
     charter_paths = [str(p) for p in Path(db_root).glob(f'*/*/*')]
@@ -67,6 +69,8 @@ def parse_all(db_root, archive_idx, fond_idx, charter_idx, img_idx):
     all_idx.update(charter_idx)
     all_idx.update(fond_idx)
     all_idx.update(archive_idx)
+    if args.verbose > 1:
+        print(f"Parsed {len(img_idx)} images, {len(charter_idx)} charters, {len(fond_idx)} fonds, {len(archive_idx)} archives.")
     return img_idx, charter_idx, fond_idx, archive_idx, all_idx
 
 
