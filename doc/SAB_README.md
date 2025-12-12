@@ -8,7 +8,9 @@ cd /home/anguelos/work/src/ddpa_layout
 cd /home/anguelos/work/src/ddpa_layout
 ./bin/ddpa_layout_serve -root /mnt/data/full_fsdb/fsdb/ -host 0.0.0.0 -port 5003
 ```
+
+
 ## Accessing
-* New [http://143.50.30.59:5003/classes?format=html](http://143.50.30.59:5003/classes?format=html)
-* Illuminated [http://143.50.30.59:5003/classes?format=html](http://143.50.30.59:5003/classes?format=html)
+* New [http://143.50.30.59:7003/classes?format=html](http://143.50.30.59:7003/classes?format=html)
+* Illuminated [http://143.50.30.59:6003/classes?format=html](http://143.50.30.59:6003/classes?format=html)
 * Full [http://143.50.30.59:5003/classes?format=html](http://143.50.30.59:5003/classes?format=html)
