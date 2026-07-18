@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-
-#PYTHONPATH="./" ./bin/ddp_seals_train --data ../seal_ds/seal_ds.yaml --workers 0 --imgsz 1024 --name mytrain --hyp data/hyps/hyp.scratch-low.yaml
-
-
 # YOLOv5 🚀 by Ultralytics, GPL-3.0 license
 """
 Train a YOLOv5 model on a custom dataset.
@@ -36,16 +31,9 @@ from torch.cuda import amp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import SGD, Adam, AdamW, lr_scheduler
 from tqdm import tqdm
-import subprocess
-
-
-def get_git_repo_strs():
-    remote = subprocess.check_output("git config --get remote.origin.url", shell=True).strip().decode("utf-8")
-    head_str = subprocess.check_output('git rev-parse HEAD', shell=True).strip().decode("utf-8")
-    return remote, head_str
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[1]  # YOLOv5 root directory
+ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
@@ -357,12 +345,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             # Forward
-            #with amp.autocast(enabled=cuda):
-            with torch.amp.autocast('cuda'):
+            with amp.autocast(enabled=cuda):
                 pred = model(imgs)  # forward
-                #print("pred", type(pred))
-                #print("targets", type(targets))
-                #sys.exit()
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
@@ -431,9 +415,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     'optimizer': optimizer.state_dict(),
                     'wandb_id': loggers.wandb.wandb_run.id if loggers.wandb else None,
                     'date': datetime.now().isoformat(),
-                    'class_names': names, # anguelos
-                    'argv_options':opt, # anguelos
-                    'git_repo': get_git_repo_strs(),
+                    'class_names': names,
+                    'argv_options':opt,
                     }
 
                 # Save last, best and delete

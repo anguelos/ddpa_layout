@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_macros.html" import breadcrumb %}
+
+{% block title %}Layout classes{% endblock %}
+
+{# client-side basket ("shopping cart") + drop target #}
+{% block topnav_extra %}{% include "_basket.html" %}{% endblock %}
+
+{% block content %}
+  {{ breadcrumb([("Layout", route_prefix ~ "/"), ("classes", None)]) }}
+  <p>Detected region classes across the database. Pick one to browse its regions.</p>
+  <table border="1" cellpadding="6" class="layout-classes">
+    <tr><th>class</th><th style="text-align:right">regions</th></tr>
+    {% for name, count in data %}
+      <tr>
+        <td><a href="{{ route_prefix }}/classitems/{{ name | urlencode }}">{{ name }}</a></td>
+        <td style="text-align:right">{{ count }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+{% endblock %}

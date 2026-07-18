@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ddpa_layout"
+dynamic = ["version"]                       # single source of truth: ddp_layout/version.py
+description = "DDPA layout analysis based on YOLOv5"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+dependencies = [
+    "matplotlib>=3.2.2",
+    "numpy>=1.18.5",
+    "opencv-python>=4.1.1",
+    "Pillow>=7.1.2",
+    "PyYAML>=5.3.1",
+    "requests>=2.23.0",
+    "scipy>=1.4.1",
+    "torch>=1.7.0",
+    "torchvision>=0.8.1",
+    "tqdm>=4.41.0",
+    "tensorboard>=2.4.1",
+    "pandas>=1.1.4",
+    "seaborn>=0.11.0",
+    "thop",
+    "flask",
+    "flasgger",
+    "fargv",
+    "didip_util"
+]
+
+[project.scripts]
+ddpa_offline_layout = "ddp_layout.scripts.ddp_layout_offline:main_ddp_seals_offline"
+ddpa_train_layout = "ddp_layout.scripts.ddp_layout_train:yolov5_train"
+ddpa_layout_serve = "ddp_layout.scripts.ddp_layout_online:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "ddp_layout.version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["ddp_layout*"]
+
+[tool.setuptools.package-data]
+ddp_layout = ["templates/*"]
+

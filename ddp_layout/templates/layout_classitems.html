@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_macros.html" import breadcrumb %}
+
+{% block title %}{{ classname }} — layout regions{% endblock %}
+
+{% block topnav_extra %}{% include "_basket.html" %}{% endblock %}
+
+{% block head_extra %}
+  <style>
+    .layout-grid { display: flex; flex-wrap: wrap; gap: .6rem; }
+    .layout-item { margin: 0; text-align: center; }
+    .layout-item img { display: block; border: 1px solid rgba(128,128,128,.5); cursor: grab; max-width: 240px; }
+    .layout-item.ddp-draggable img { cursor: grab; }
+    .layout-item figcaption { font: 12px ui-monospace, monospace; opacity: .7; }
+  </style>
+{% endblock %}
+
+{% block content %}
+  {{ breadcrumb([("Layout", route_prefix ~ "/"),
+                 ("classes", route_prefix ~ "/classes"),
+                 (classname, None)]) }}
+  <p>{{ total }} region(s){% if items|length < total %} — showing {{ current.0 }}–{{ current.0 + items|length }}{% endif %}.
+     Drag a thumbnail into the basket to add its charter.</p>
+
+  {% if total > current.1 %}
+    {% set paging_base_url = route_prefix ~ "/classitems/" ~ (classname | urlencode) ~ "/" %}
+    {% set format = "html" %}
+    {% set fpcnl_pagers = [first, prev, current, following, last] %}
+    {% include "generic_pagination.html" %}
+  {% endif %}
+
+  <div class="layout-grid">
+    {% for it in items %}
+      <figure class="layout-item" data-charter-md5="{{ it.charter_md5 }}"
+              title="charter {{ it.charter_md5 }} — drag me into the basket">
+        <a href="{{ route_prefix }}/objects/{{ it.imgmd5 }}/{{ it.object_num }}">
+          <img src="{{ route_prefix }}/iiif/{{ it.imgmd5 }}/{{ it.LTRB[0] }},{{ it.LTRB[1] }},{{ it.LTRB[2] }},{{ it.LTRB[3] }}/max/0/default.jpg"
+               height="120" loading="lazy" alt="{{ it.class_name }} in {{ it.imgmd5 }}">
+        </a>
+        <figcaption>{{ "%.2f"|format(it.confidence) }}</figcaption>
+      </figure>
+    {% else %}
+      <p>No regions in the current scope.</p>
+    {% endfor %}
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  {# make the [data-charter-md5] thumbnails draggable into the basket (shared helper) #}
+  <script type="module" src="{{ url_for('static', filename='ddp_drag.js') }}"></script>
+{% endblock %}

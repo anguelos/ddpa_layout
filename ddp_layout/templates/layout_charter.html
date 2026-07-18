@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_macros.html" import breadcrumb, view_region %}
+
+{# make every live sibling link to THIS charter in the topnav (cross-service glue) #}
+{% set sibling_md5 = charter_md5 %}
+
+{% block title %}Layout — charter {{ charter_md5 }}{% endblock %}
+
+{% block topnav_extra %}{% include "_basket.html" %}{% endblock %}
+
+{% block head_extra %}
+  <style>
+    .layout-annot { margin: 0 0 1rem; }
+    .layout-annot-svg { width: 100%; max-width: 900px; height: auto; border: 1px solid rgba(128,128,128,.5); background: #0002; }
+    .layout-annot-svg rect { cursor: pointer; }
+    .layout-annot figcaption { font: 12px ui-monospace, monospace; opacity: .7; }
+  </style>
+{% endblock %}
+
+{% block content %}
+  {# the page's current context is this charter -> the basket's +/- acts on it (ddp_views.js) #}
+  {% call view_region('charter', charter_md5, context=True) %}
+  <div data-charter-md5="{{ charter_md5 }}" title="charter {{ charter_md5 }} — drag me into the basket">
+    {{ breadcrumb([("Layout", route_prefix ~ "/"), ("charter " ~ charter_md5, None)]) }}
+    {% for im in images %}
+      {% set w = im.wh[0] or 1000 %}{% set hgt = im.wh[1] or 1000 %}
+      <figure class="layout-annot">
+        <svg viewBox="0 0 {{ w }} {{ hgt }}" class="layout-annot-svg" preserveAspectRatio="xMidYMid meet">
+          <image href="{{ route_prefix }}/iiif/{{ im.imgmd5 }}/full/max/0/default.jpg"
+                 x="0" y="0" width="{{ w }}" height="{{ hgt }}"></image>
+          {% for o in im.objects %}
+            <a href="{{ route_prefix }}/objects/{{ im.imgmd5 }}/{{ o.object_num }}">
+              <rect x="{{ o.LTRB[0] }}" y="{{ o.LTRB[1] }}"
+                    width="{{ o.LTRB[2] - o.LTRB[0] }}" height="{{ o.LTRB[3] - o.LTRB[1] }}"
+                    fill="none" stroke="{{ o.class_color }}" stroke-width="4">
+                <title>{{ o.class_name }} ({{ "%.2f"|format(o.confidence) }})</title>
+              </rect>
+            </a>
+          {% endfor %}
+        </svg>
+        <figcaption>{{ im.imgmd5 }} — {{ im.objects|length }} object(s)</figcaption>
+      </figure>
+    {% else %}
+      <p>No layout predictions for this charter.</p>
+    {% endfor %}
+  </div>
+  {% endcall %}
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='ddp_drag.js') }}"></script>
+{% endblock %}

@@ -50,7 +50,7 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-import val  # for end-of-epoch mAP
+from . import ddp_layout_validate  # for end-of-epoch mAP
 from ddp_layout.models.experimental import attempt_load
 from ddp_layout.models.yolo import Model
 from ddp_layout.utils.autoanchor import check_anchors
@@ -129,7 +129,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     if pretrained:
         with torch_distributed_zero_first(LOCAL_RANK):
             weights = attempt_download(weights)  # download if not found locally
-        ckpt = torch.load(weights, map_location='cpu')  # load checkpoint to CPU to avoid CUDA memory leak
+        ckpt = torch.load(weights, map_location='cpu', weights_only=False)  # load checkpoint to CPU to avoid CUDA memory leak
         model = Model(cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
         exclude = ['anchor'] if (cfg or hyp.get('anchors')) and not resume else []  # exclude keys
         csd = ckpt['model'].float().state_dict()  # checkpoint state_dict as FP32
@@ -402,7 +402,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
             final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
             if not noval or final_epoch:  # Calculate mAP
-                results, maps, _ = val.run(data_dict,
+                results, maps, _ = ddp_layout_validate.run(data_dict,
                                            batch_size=batch_size // WORLD_SIZE * 2,
                                            imgsz=imgsz,
                                            model=ema.ema,
@@ -468,7 +468,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 strip_optimizer(f)  # strip optimizers
                 if f is best:
                     LOGGER.info(f'\nValidating {f}...')
-                    results, _, _ = val.run(
+                    results, _, _ = ddp_layout_validate.run(
                         data_dict,
                         batch_size=batch_size // WORLD_SIZE * 2,
                         imgsz=imgsz,
@@ -682,6 +682,21 @@ def run(**kwargs):
     return opt
 
 
-if __name__ == "__main__":
+def yolov5_train():
     opt = parse_opt()
     main(opt)
+
+
+def create_yolov5_dataset():
+    import fargv
+    p = {
+        'data': 'coco128.yaml',
+        'imgsz': 640,
+        'batch_size': 16,
+        'epochs': 300,
+        'weights': 'yolov5s.pt',
+    }
+
+
+if __name__ == "__main__":
+    yolov5_train()

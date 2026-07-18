@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "_macros.html" import breadcrumb %}
+
+{% block title %}Object {{ obj.object_num }} — {{ obj.imgmd5 }}{% endblock %}
+
+{% block topnav_extra %}{% include "_basket.html" %}{% endblock %}
+
+{% block head_extra %}
+  <style>
+    .layout-object img { max-width: 100%; border: 1px solid rgba(128,128,128,.5); cursor: grab; }
+    .layout-object dl { display: grid; grid-template-columns: max-content 1fr; gap: .2rem .8rem; }
+    .layout-object dt { opacity: .6; }
+    .layout-object dd { margin: 0; font-family: ui-monospace, monospace; }
+  </style>
+{% endblock %}
+
+{% block content %}
+  {{ breadcrumb([("Layout", route_prefix ~ "/"),
+                 (obj.class_name, route_prefix ~ "/classitems/" ~ (obj.class_name | urlencode)),
+                 ("object " ~ obj.object_num, None)]) }}
+  <div class="layout-object" data-charter-md5="{{ obj.charter_md5 }}"
+       title="charter {{ obj.charter_md5 }} — drag me into the basket">
+    <img src="{{ route_prefix }}/iiif/{{ obj.imgmd5 }}/{{ obj.LTRB[0] }},{{ obj.LTRB[1] }},{{ obj.LTRB[2] }},{{ obj.LTRB[3] }}/max/0/default.jpg"
+         alt="{{ obj.class_name }}">
+    <dl>
+      <dt>class</dt><dd style="color:{{ obj.class_color }}">{{ obj.class_name }}</dd>
+      <dt>confidence</dt><dd>{{ "%.4f"|format(obj.confidence) }}</dd>
+      <dt>LTRB</dt><dd>{{ obj.LTRB }}</dd>
+      <dt>image</dt><dd>{{ obj.imgmd5 }}</dd>
+      <dt>charter</dt><dd><a href="{{ route_prefix }}/charter/{{ obj.charter_md5 }}">{{ obj.charter_md5 }}</a></dd>
+    </dl>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='ddp_drag.js') }}"></script>
+{% endblock %}
