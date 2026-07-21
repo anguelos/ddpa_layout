@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Thin launcher for the SCOPED layout serving app (kept for direct ``bin/`` invocation).
+
+The real service is ``ddp_layout.scoped_layout_service.ScopedLayoutMicroservice``; prefer the
+installed console script ``ddpa_scoped_layout_serve`` (declared in pyproject.toml).
+"""
+from ddp_layout.scripts.ddp_scoped_layout_online import main
+
+if __name__ == "__main__":
+    main()

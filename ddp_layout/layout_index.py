@@ -32,10 +32,42 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
-from fsdb.shared_index import FSDBSharedIndex, FSDBSharedImageIndex
+from fsdb.shared_index import FSDBSharedIndex, FSDBSharedImageIndex, iter_charter_scan
 
 #: charter-relative glob for the per-image layout prediction files (one per charter image).
 LAYOUT_PRED_GLOB = "*.layout.pred.json"
+
+
+def _scan_one_charter(task):
+    """Scan ONE charter dir: ``(pos, charter_dir)`` -> ``([(imgmd5, pos, ext), ...], {imgmd5:
+    (boxes, wh)})`` -- layout's per-charter worker for the shared parallel driver
+    (:func:`fsdb.shared_index.iter_charter_scan`), which fans it out over processes.
+
+    Module-level on purpose: a process pool can only dispatch a picklable, importable top-level
+    callable, never a closure. Touches only its own arguments and the filesystem, so workers never
+    share state. Unlike the base image worker it also READS each prediction file -- the JSON
+    parsing that makes this pass CPU-bound (~7x from processes vs ~1.4x from threads).
+    """
+    pos, cdir = task
+    imgs: list[tuple] = []
+    preds: dict[str, tuple] = {}
+    try:
+        with os.scandir(cdir) as it:
+            for e in it:
+                if not e.is_file():
+                    continue
+                m = FSDBSharedImageIndex._IMG_RE.match(e.name)
+                if m:
+                    imgs.append((m.group(1), pos, m.group(2)))
+                    continue
+                mp = FSDBLayoutIndex._PRED_RE.match(e.name)
+                if mp:
+                    rec = FSDBLayoutIndex._read_pred(e.path, imgmd5=mp.group(1))
+                    if rec is not None:
+                        preds[rec[0]] = (rec[1], rec[2])
+    except OSError:
+        pass
+    return imgs, preds
 
 
 def _confidence(caption) -> float:
@@ -86,14 +118,16 @@ class FSDBLayoutIndex:
     _PRED_RE = re.compile(r"^([0-9a-f]{32})\.layout\.pred\.json$")
 
     @classmethod
-    def from_fsdb_root(cls, fsdb_root, *, filepattern=None, verbose=0):
+    def from_fsdb_root(cls, fsdb_root, *, filepattern=None, verbose=0, workers=None):
         """Build the charter namespace (fast dir-name crawl) then read the image files AND their
         layout prediction files in a SINGLE pass -- one ``os.scandir`` per charter dir, no
         separate walk for predictions. Signature matches ``FSDBSharedIndex.from_fsdb_root`` so
         ``SharedIndexMicroservice`` can use this as its ``index_class``. ``filepattern`` is
-        forwarded to the inner index's optional presence overlay."""
+        forwarded to the inner index's optional presence overlay. ``workers`` sets the PROCESS-pool
+        size for the (CPU-bound) per-charter scan; ``None`` -> one per core, ``<=1`` -> serial."""
         base = FSDBSharedIndex.from_fsdb_root(fsdb_root, filepattern=filepattern, verbose=verbose)
-        image_id, image_ext, image_to_charter_idx, collected = cls._scan_images_and_preds(base, verbose=verbose)
+        image_id, image_ext, image_to_charter_idx, collected = cls._scan_images_and_preds(
+            base, verbose=verbose, workers=workers)
         img = FSDBSharedImageIndex(
             base.archive_id, base.fond_id, base.charter_id,
             base.charter_to_fond_idx, base.fond_to_archive_idx,
@@ -117,49 +151,41 @@ class FSDBLayoutIndex:
         return cls._assemble(img, collected, verbose=verbose)
 
     @classmethod
-    def _scan_images_and_preds(cls, base, *, verbose=0):
+    def _scan_images_and_preds(cls, base, *, verbose=0, workers=None):
         """One pass over the charter dirs known to ``base``: a single ``os.scandir`` per dir that
         collects both ``<md5>.img.<ext>`` image files and ``<md5>.layout.pred.json`` predictions.
         Returns ``(image_id, image_ext, image_to_charter_idx, collected)`` where the image arrays
         match what ``FSDBSharedImageIndex`` expects (sorted by image md5) and ``collected`` maps
-        image md5 -> ``(boxes, wh)`` with name-based boxes (class indexing happens in _assemble)."""
+        image md5 -> ``(boxes, wh)`` with name-based boxes (class indexing happens in _assemble).
+
+        The per-charter scan runs on a **process** pool (:func:`_scan_one_charter`). Measured on the
+        real DB, the cost is dominated by ``json.loads`` of ~1.4 kB prediction files -- CPU work that
+        the GIL serialises, so threads plateau at ~1.4x while processes reach ~7x. Each worker
+        returns its charter's data and the PARENT aggregates, so nothing is shared;
+        ``executor.map`` yields in submission (charter-position) order, so the result is IDENTICAL
+        to the serial scan. ``workers=None`` picks a CPU-based default; ``workers<=1`` runs serially
+        in-process (no pool, no pickling -- best for small slices)."""
         if base.fsdb_root is None:
             raise ValueError("layout scan requires the charter index to know its fsdb_root")
-        root = Path(base.fsdb_root)
-        img_re, pred_re = FSDBSharedImageIndex._IMG_RE, cls._PRED_RE
+        n = len(base)
         t0 = time.time()
         if verbose >= 1:
-            print(f"[FSDBLayoutIndex] scanning images + layout predictions in {len(base)} charters ...",
+            print(f"[FSDBLayoutIndex] scanning images + layout predictions in {n} charters ...",
                   file=sys.stderr, flush=True)
-        positions = range(len(base))
-        if verbose >= 2:
-            positions = tqdm(positions, unit="charter", desc="[FSDBLayoutIndex] scanning", file=sys.stderr)
 
         img_ids: list[str] = []
         img_pos: list[int] = []
         img_exts: list[str] = []
         collected: dict[str, tuple[list, tuple]] = {}
-        for pos in positions:
-            cdir = root / base.charter_relpath(pos)
-            try:
-                with os.scandir(cdir) as it:
-                    for e in it:
-                        if not e.is_file():
-                            continue
-                        m = img_re.match(e.name)
-                        if m:
-                            img_ids.append(m.group(1))
-                            img_pos.append(pos)
-                            img_exts.append(m.group(2))
-                            continue
-                        mp = pred_re.match(e.name)
-                        if mp:
-                            rec = cls._read_pred(e.path, imgmd5=mp.group(1))
-                            if rec is not None:
-                                imgmd5, boxes, wh = rec
-                                collected[imgmd5] = (boxes, wh)
-            except OSError:
-                pass
+        # the shared driver owns the pool/ordering/tqdm; layout only supplies its per-charter worker
+        for imgs, preds in iter_charter_scan(base, _scan_one_charter, workers=workers,
+                                             verbose=verbose,
+                                             desc="[FSDBLayoutIndex] scanning"):
+            for mid, pos, ext in imgs:                         # aggregated in the parent process
+                img_ids.append(mid)
+                img_pos.append(pos)
+                img_exts.append(ext)
+            collected.update(preds)
 
         if img_ids:
             image_md5_arr = np.array(img_ids, dtype="S32")
@@ -300,6 +326,16 @@ class FSDBLayoutIndex:
             return rows
         mask = np.asarray(charter_mask, dtype=bool)
         return rows[mask[self.box_charter_row[rows]]]
+
+    def scoped_class_rows(self, charter_mask=None) -> dict:
+        """``{class_name: global box rows}`` for EVERY class, restricted to a charter selection.
+
+        The by-class browse index the ``/classes`` overview and the ``/classitems`` pages are built
+        from, scoped. Values stay **compact numpy row arrays** -- never materialised records: this
+        is also the whole-DB reduce (``charter_mask=None``), where a class holds millions of boxes.
+        Per-class cardinality is then a free ``len()``, and a view materialises only the page it
+        renders (:meth:`box_record` on ~25 rows)."""
+        return {name: self.class_box_rows(name, charter_mask) for name in self.class_names}
 
     def box_record(self, row) -> dict:
         """A rich, JSON-serialisable record for one global box row: identity + geometry."""
