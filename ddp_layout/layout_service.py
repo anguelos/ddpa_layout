@@ -1,22 +1,26 @@
-#!/usr/bin/env python3
-"""The DiDip layout serving microservice (``ms_id=3``), as a :class:`SharedIndexMicroservice`.
+"""The DiDip layout serving microservice (``sly``).
 
 Launch (if not running):  ddpa_layout_serve
 
-This brings the layout app's online mode onto the current DiDip standard: it subclasses the
-OO base in the ``didipcv`` core (``ddp_microservices``), so it inherits ``/ly/health`` +
-``/ly/info`` + ``/ly/health_report``, Swagger, sibling discovery/monitor, ``run()``, and the
-shared ``/ly/basket`` + ``/ly/basket/db`` routes. ``self.index`` is an :class:`FSDBLayoutIndex`
-(composition over ``FSDBSharedImageIndex``) reduced from the ``*.layout.pred.json`` files.
+Layout analysis restricted to the **active basket**: the class overview and the by-class region
+browser report what is in scope, not the whole database. It is the reference consumer of the
+scoped-microservice layer in the didipcv core, so almost everything is inherited:
 
-It owns the layout-specific surface under its ``/ly`` prefix (own-the-prefix): ``/ly/classes``,
-``/ly/classitems`` (the class-item browser, scoped by the active basket), ``/ly/objects``,
-``/ly/charter`` (the layout-annotated charter view) and a self-hosted ``/ly/iiif`` (so the app
-runs without Static). Every class-item / object thumbnail carries ``data-charter-md5`` so it can
-be dragged into the basket (see the shared ``ddp_drag.js`` + the basket widget's drop target).
+- ``@scoped_ms`` marks the service scope-aware; every route below is declared either
+  ``@self.scoped_route`` (consumes the basket; GET+POST automatically) or
+  ``@self.unscoped_route`` (ignores it -- a real scope there is rejected with 400). A plain
+  ``@app.route`` would raise at startup, so each view states its relationship to the basket once.
+- the basket itself never appears in a URL (it can be ~90 kB packed): ``static/ddp_scope.js``
+  POSTs it and intercepts ``a.ddp-nav`` clicks, so ordinary ``create_pagers`` links keep their
+  scope. Templates only ``{% include "_scope.html" %}`` and emit the ``#ddp-scope`` marker.
+- ``self.reduce_for_request()`` returns the scoped summary when a basket is active and the
+  memoised whole-DB one otherwise -- the views need no branch.
 
-Depends on the ``didipcv`` core (``ddp_microservices`` / ``ddp_util`` / ``fsdb``); install it
-into the serving venv. Flask, PIL and numpy come in via those. Nothing is imported lazily.
+It owns the ``sly`` prefix, so it still runs beside the superseded whole-DB service
+(:mod:`ddp_layout.layout_service_legacy`, ``ly``, ``ddpa_layout_serve_legacy``).
+
+Compare ``tmp_scope_spike/tly_service.py``: the scope parsing, GET/POST wiring, navigation module
+and pager were all hand-rolled there and are inherited here.
 """
 from __future__ import annotations
 
@@ -26,26 +30,39 @@ from flask import jsonify, request, send_file
 from ddp_util import create_pagers
 from ddp_util.iiif.iiif import compute_iiif
 from ddp_microservices import scope
-from ddp_microservices.microservice import SharedIndexMicroservice
+from ddp_microservices.microservice import SharedIndexMicroservice, scoped_ms
 
 from .config import MsLayout
 from .layout_index import FSDBLayoutIndex
 
 
+@scoped_ms
 class LayoutMicroservice(SharedIndexMicroservice):
-    """Layout-analysis serving app: browse detected regions by class, scoped by a basket.
+    """Layout regions browsable by class, scoped to the active basket.
 
     Launch (if not running):  ddpa_layout_serve
     """
 
-    config_class = MsLayout                      # app-owned config (ddp_layout/config.py), not the core suite
-    GLOBAL_ROUTE_PREFIX = "ly"                    # every route is /ly/... (own-the-prefix)
+    config_class = MsLayout
+    GLOBAL_ROUTE_PREFIX = "sly"
     LAUNCH_CMD = "ddpa_layout_serve"
-    VIEWS = ("charter", "root")                  # hand-off view types layout accepts (/ly/charter, /ly/)
-    filepattern = None                           # the box reduce globs the prediction files itself
+    VIEWS = ("charter", "root")
     index_class = FSDBLayoutIndex
 
-    # ---- health_report: add the layout payload sizes ----------------------------------
+    # ---- the reduce: generic counts (base) + the layout payload -------------------------
+    def scoped_reduce(self, mask):
+        """Base counts plus the by-class cardinalities, over the same charter mask.
+
+        Reduces over compact numpy row arrays and emits only plain ints, so the result is
+        JSON-serialisable and cheap enough to recompute per request -- ``global_reduce`` is this
+        same call with an all-True mask (the whole DB), where materialising records would be
+        impossible."""
+        out = super().scoped_reduce(mask)
+        rows_by_class = self.index.scoped_class_rows(mask)
+        out["by_class"] = {name: int(len(rows)) for name, rows in rows_by_class.items()}
+        out["total_objects"] = int(sum(out["by_class"].values()))
+        return out
+
     def health_report(self) -> dict:
         rep = super().health_report()
         rep["n_boxes"] = self.index.n_boxes
@@ -54,67 +71,60 @@ class LayoutMicroservice(SharedIndexMicroservice):
 
     # ---- routes ------------------------------------------------------------------------
     def register_routes(self):
-        super().register_routes()                # /ly/basket + /ly/basket/db
-        app = self.app
-        page_itemcount = self.cfg.page_itemcount   # single source of truth: MsLayout config
+        super().register_routes()                 # /sly/basket + /sly/basket/db
+        page_itemcount = self.cfg.page_itemcount
 
-        @app.route('/ly/classes')
-        def serve_classes():
-            """All layout classes with their box cardinalities (whole DB).
+        @self.scoped_route('/sly/')
+        def home():
+            """Landing page: the class overview, scoped to the active basket.
             ---
             responses:
-              200: {description: class list (json) or a table (html)}
+              200: {description: class overview (html) or the summary (json)}
+              409: {description: basket references a different index}
             """
-            if (request.args.get('format') or 'html') == 'json':
-                return jsonify(self.index.class_names)
-            return self.render('layout_classes.html', data=self.index.class_cardinalities())
+            return classes()
 
-        @app.route('/ly/classitems/<classname>')
-        @app.route('/ly/classitems/<classname>/<int:skip>/<int:itemcount>')
-        def serve_classitems(classname, skip=0, itemcount=None):
-            """Boxes of one class, paged, scoped to the active basket (?scope=<wire basket>).
+        @self.scoped_route('/sly/classes')
+        def classes():
+            """Detected classes with their in-scope cardinalities.
             ---
             responses:
-              200: {description: paged class items (json or html)}
+              200: {description: class overview (html) or the summary (json)}
+              409: {description: basket references a different index}
+            """
+            summary = self.reduce_for_request()    # scoped when a basket is active, else global
+            if (request.args.get('format') or 'html') == 'json':
+                return jsonify(summary)
+            rows = [(name, summary["by_class"][name]) for name in self.index.class_names]
+            return self.render('layout_classes.html', rows=rows, summary=summary,
+                               applied=scope.active)
+
+        @self.scoped_route('/sly/classitems/<classname>')
+        @self.scoped_route('/sly/classitems/<classname>/<int:skip>/<int:itemcount>')
+        def classitems(classname, skip=0, itemcount=None):
+            """One class's regions, paged, restricted to the active basket.
+            ---
+            responses:
+              200: {description: paged regions (html or json)}
               409: {description: basket references a different index}
             """
             itemcount = itemcount or page_itemcount
-            # inherited request-scoped basket: the charter mask when a scope is active, else None
-            # (whole DB, fast path). A different-index basket -> 409 via the base error handler.
-            mask = scope.charters if scope.active else None
-            rows = self.index.class_box_rows(classname, mask)
+            rows = self.index.class_box_rows(classname, scope.charters if scope.active else None)
             total = int(len(rows))
             first, prev, current, following, last = create_pagers(total, skip, itemcount)
-            begin, end = current[0], min(current[0] + current[1], total)
-            records = [self.index.box_record(int(r)) for r in rows[begin:end]]
+            begin = current[0]
+            # materialise ONLY the visible page (the scoped rows may be millions)
+            items = [self.index.box_record(int(r)) for r in rows[begin:begin + current[1]]]
             if (request.args.get('format') or 'html') == 'json':
-                return jsonify({"classname": classname, "total": total, "items": records})
-            return self.render('layout_classitems.html', classname=classname, items=records,
+                return jsonify({"classname": classname, "total": total, "skip": skip,
+                                "itemcount": itemcount, "items": items})
+            return self.render('layout_classitems.html', classname=classname, items=items,
                                total=total, first=first, prev=prev, current=current,
-                               following=following, last=last)
+                               following=following, last=last, applied=scope.active)
 
-        @app.route('/ly/objects/<imgmd5>/<int:object_num>')
-        def serve_object(imgmd5, object_num):
-            """One detected object (the Nth box of an image).
-            ---
-            responses:
-              200: {description: object record (json or html)}
-              404: {description: unknown image or object index}
-            """
-            try:
-                rows = self.index.image_box_rows(imgmd5)
-            except KeyError:
-                return f"Unknown image {imgmd5}", 404
-            if not 0 <= object_num < len(rows):
-                return f"No object {object_num} in image {imgmd5}", 404
-            rec = self.index.box_record(int(rows[object_num]))
-            if (request.args.get('format') or 'html') == 'json':
-                return jsonify(rec)
-            return self.render('layout_object.html', obj=rec)
-
-        @app.route('/ly/charter/<md5>')
-        def render_charter(md5):
-            """Layout-annotated charter view: each image with its detected boxes overlaid.
+        @self.unscoped_route('/sly/charter/<md5>')
+        def charter(md5):
+            """Layout-annotated charter view (a single charter: the basket does not narrow it).
             ---
             responses:
               200: {description: annotated charter page}
@@ -125,21 +135,23 @@ class LayoutMicroservice(SharedIndexMicroservice):
             images = []
             for irow in self.index.charter_image_rows(md5):
                 irow = int(irow)
-                imgmd5 = self.index.image_id[irow].decode('ascii')
-                wh = [int(x) for x in self.index.image_wh[irow].tolist()]
-                objects = [self.index.box_record(int(r)) for r in self.index.image_box_rows(irow)]
-                images.append({"imgmd5": imgmd5, "wh": wh, "objects": objects})
+                images.append({
+                    "imgmd5": self.index.image_id[irow].decode('ascii'),
+                    "wh": [int(x) for x in self.index.image_wh[irow].tolist()],
+                    "objects": [self.index.box_record(int(r))
+                                for r in self.index.image_box_rows(irow)],
+                })
             return self.render('layout_charter.html', charter_md5=md5, images=images,
                                sibling_md5=md5)
 
-        @app.route('/ly/iiif/<md5>')
-        @app.route('/ly/iiif/<md5>/<region>')
-        @app.route('/ly/iiif/<md5>/<region>/<size>')
-        @app.route('/ly/iiif/<md5>/<region>/<size>/<rotation>')
-        @app.route('/ly/iiif/<md5>/<region>/<size>/<rotation>/<quality>')
-        @app.route('/ly/iiif/<md5>/<region>/<size>/<rotation>/<quality>.<format>')
+        @self.unscoped_route('/sly/iiif/<md5>')
+        @self.unscoped_route('/sly/iiif/<md5>/<region>')
+        @self.unscoped_route('/sly/iiif/<md5>/<region>/<size>')
+        @self.unscoped_route('/sly/iiif/<md5>/<region>/<size>/<rotation>')
+        @self.unscoped_route('/sly/iiif/<md5>/<region>/<size>/<rotation>/<quality>')
+        @self.unscoped_route('/sly/iiif/<md5>/<region>/<size>/<rotation>/<quality>.<format>')
         def serve_iiif(md5, region="full", size="max", rotation="0", quality="default", format="jpg"):
-            """Self-hosted IIIF Image API for a charter image (so layout runs without Static).
+            """Self-hosted IIIF Image API for a charter image (so sly runs without Static).
             ---
             responses:
               200: {description: transformed image}
@@ -149,16 +161,6 @@ class LayoutMicroservice(SharedIndexMicroservice):
                 img_path = self.index.image_path(md5)
             except (KeyError, FileNotFoundError):
                 return f"Unknown image {md5}", 404
-            pil_image = PIL.Image.open(str(img_path))
-            buffer, mimetype = compute_iiif(pil_image, md5, region, size=size, rotation=rotation,
-                                            quality=quality, format=format)
+            buffer, mimetype = compute_iiif(PIL.Image.open(str(img_path)), md5, region, size=size,
+                                            rotation=rotation, quality=quality, format=format)
             return send_file(buffer, mimetype=mimetype)
-
-        @app.route('/ly/')
-        def home():
-            """Landing page: the class list.
-            ---
-            responses:
-              200: {description: home / class list}
-            """
-            return self.render('layout_classes.html', data=self.index.class_cardinalities())

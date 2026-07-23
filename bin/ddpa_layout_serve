@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Thin launcher for the layout serving app (kept for direct ``bin/`` invocation).
 
-The real service is ``ddp_layout.layout_service.LayoutMicroservice``; prefer the installed
-console script ``ddpa_layout_serve`` (declared in pyproject.toml). This file used to be a
-byte-for-byte copy of the old procedural online script -- that is gone; it now just delegates.
+The real service is ``ddp_layout.layout_service.LayoutMicroservice`` (scope-aware, ``/sly/...``);
+prefer the installed console script ``ddpa_layout_serve`` (declared in pyproject.toml).
+The superseded whole-DB service is ``bin/ddpa_layout_serve_legacy``.
 """
 from ddp_layout.scripts.ddp_layout_online import main
 

@@ -9,31 +9,53 @@ description = "DDPA layout analysis based on YOLOv5"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.8"
+# The SERVING set, and nothing more. `ddpa_layout_serve` (mode 3) reduces precomputed
+# `<md5>.layout.pred.json` files into RAM and serves them: its whole import graph is
+# ddp_layout_online -> layout_service (PIL, flask, ddp_util, ddp_microservices) and
+# layout_index (numpy, tqdm, fsdb). It touches neither torch nor OpenCV.
+#
+# BREAKING (2026-07-22): the YOLOv5 stack moved to the `ml` extra below, so a plain
+# `pip install ddpa_layout` no longer pulls ~5GB of torch/opencv/tensorboard. The offline and
+# train CLIs therefore need `pip install 'ddpa_layout[ml]'` (or `[offline]` / `[train]`) and will
+# otherwise fail at import. Extras can only ADD, never subtract -- which is why the heavy
+# packages had to leave `dependencies` rather than a `serve` extra being added alongside them.
 dependencies = [
-    "matplotlib>=3.2.2",
     "numpy>=1.18.5",
-    "opencv-python>=4.1.1",
     "Pillow>=7.1.2",
-    "PyYAML>=5.3.1",
-    "requests>=2.23.0",
-    "scipy>=1.4.1",
-    "torch>=1.7.0",
-    "torchvision>=0.8.1",
     "tqdm>=4.41.0",
-    "tensorboard>=2.4.1",
-    "pandas>=1.1.4",
-    "seaborn>=0.11.0",
-    "thop",
     "flask",
     "flasgger",
     "fargv",
     "didip_util"
 ]
 
+[project.optional-dependencies]
+# `pip install .` is already serve-capable; this alias exists so deployment docs and Dockerfiles
+# can say `.[serve]` explicitly, and keeps working if serving ever grows a dependency.
+serve = []
+# the YOLOv5 stack: ddp_layout.models, ddp_layout.utils, ddp_layout.legacy and the offline /
+# train / validate CLIs. Not imported by the serving path.
+ml = [
+    "matplotlib>=3.2.2",
+    "opencv-python>=4.1.1",
+    "PyYAML>=5.3.1",
+    "requests>=2.23.0",
+    "scipy>=1.4.1",
+    "torch>=1.7.0",
+    "torchvision>=0.8.1",
+    "tensorboard>=2.4.1",
+    "pandas>=1.1.4",
+    "seaborn>=0.11.0",
+    "thop"
+]
+offline = ["ddpa_layout[ml]"]
+train = ["ddpa_layout[ml]"]
+
 [project.scripts]
 ddpa_offline_layout = "ddp_layout.scripts.ddp_layout_offline:main_ddp_seals_offline"
 ddpa_train_layout = "ddp_layout.scripts.ddp_layout_train:yolov5_train"
 ddpa_layout_serve = "ddp_layout.scripts.ddp_layout_online:main"
+ddpa_layout_serve_legacy = "ddp_layout.scripts.ddp_layout_online_legacy:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "ddp_layout.version.__version__" }

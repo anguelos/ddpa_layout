@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Thin launcher for the LEGACY layout serving app (kept for direct ``bin/`` invocation).
+
+The real service is ``ddp_layout.layout_service_legacy.LegacyLayoutMicroservice`` (whole-DB,
+``/ly/...``); prefer the installed console script ``ddpa_layout_serve_legacy`` (declared in
+pyproject.toml). Superseded by ``bin/ddpa_layout_serve``.
+"""
+from ddp_layout.scripts.ddp_layout_online_legacy import main
+
+if __name__ == "__main__":
+    main()

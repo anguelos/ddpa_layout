@@ -2,11 +2,11 @@
 ##  Lauch Layout Locally
 ```bash
 cd /home/anguelos/work/src/ddpa_layout
-./bin/ddpa_layout_serve -root /mnt/data/full_fsdb/slices/new_archives/fsdb/ -host 0.0.0.0 -port 7003
+./bin/ddpa_layout_serve_legacy -root /mnt/data/full_fsdb/slices/new_archives/fsdb/ -host 0.0.0.0 -port 7003
 cd /home/anguelos/work/src/ddpa_layout
-./bin/ddpa_layout_serve -root /mnt/data/full_fsdb/slices/illuminated/fsdb -host 0.0.0.0 -port 6003
+./bin/ddpa_layout_serve_legacy -root /mnt/data/full_fsdb/slices/illuminated/fsdb -host 0.0.0.0 -port 6003
 cd /home/anguelos/work/src/ddpa_layout
-./bin/ddpa_layout_serve -root /mnt/data/full_fsdb/fsdb/ -host 0.0.0.0 -port 5003
+./bin/ddpa_layout_serve_legacy -root /mnt/data/full_fsdb/fsdb/ -host 0.0.0.0 -port 5003
 ```
 
 

@@ -10,7 +10,6 @@
     .layout-grid { display: flex; flex-wrap: wrap; gap: .6rem; }
     .layout-item { margin: 0; text-align: center; }
     .layout-item img { display: block; border: 1px solid rgba(128,128,128,.5); cursor: grab; max-width: 240px; }
-    .layout-item.ddp-draggable img { cursor: grab; }
     .layout-item figcaption { font: 12px ui-monospace, monospace; opacity: .7; }
   </style>
 {% endblock %}
@@ -19,10 +18,14 @@
   {{ breadcrumb([("Layout", route_prefix ~ "/"),
                  ("classes", route_prefix ~ "/classes"),
                  (classname, None)]) }}
-  <p>{{ total }} region(s){% if items|length < total %} — showing {{ current.0 }}–{{ current.0 + items|length }}{% endif %}.
+
+  <p>{{ total }} region(s){% if applied %} in the active basket{% else %} in the whole database{% endif %}{%
+     if items|length < total %} — showing {{ current.0 + 1 }}–{{ current.0 + items|length }}{% endif %}.
      Drag a thumbnail into the basket to add its charter.</p>
 
   {% if total > current.1 %}
+    {# the shared pager: its links are class="ddp-nav", so ddp_scope.js re-POSTs the active
+       basket to them and paging stays scoped (skip/count ride in the URL path as usual) #}
     {% set paging_base_url = route_prefix ~ "/classitems/" ~ (classname | urlencode) ~ "/" %}
     {% set format = "html" %}
     {% set fpcnl_pagers = [first, prev, current, following, last] %}
@@ -33,7 +36,7 @@
     {% for it in items %}
       <figure class="layout-item" data-charter-md5="{{ it.charter_md5 }}"
               title="charter {{ it.charter_md5 }} — drag me into the basket">
-        <a href="{{ route_prefix }}/objects/{{ it.imgmd5 }}/{{ it.object_num }}">
+        <a class="ddp-nav" href="{{ route_prefix }}/charter/{{ it.charter_md5 }}">
           <img src="{{ route_prefix }}/iiif/{{ it.imgmd5 }}/{{ it.LTRB[0] }},{{ it.LTRB[1] }},{{ it.LTRB[2] }},{{ it.LTRB[3] }}/max/0/default.jpg"
                height="120" loading="lazy" alt="{{ it.class_name }} in {{ it.imgmd5 }}">
         </a>
@@ -43,9 +46,13 @@
       <p>No regions in the current scope.</p>
     {% endfor %}
   </div>
+
+  <div id="ddp-scope" data-basepath="{{ route_prefix }}/classitems/{{ classname | urlencode }}"
+       {% if applied %}data-applied="1"{% endif %} hidden></div>
 {% endblock %}
 
 {% block scripts %}
   {# make the [data-charter-md5] thumbnails draggable into the basket (shared helper) #}
   <script type="module" src="{{ url_for('static', filename='ddp_drag.js') }}"></script>
+  {% include "_scope.html" %}
 {% endblock %}
